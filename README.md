@@ -21,6 +21,7 @@ The code is intentionally framework-light so the domain rules can be tested befo
 
 ```txt
 apps/api/timeops_core/  # Python domain package for the API service
+design/                 # UI mockups (Design Canvas) and reference screenshots
 infra/docker/           # Container/deployment notes and compose starter
 tests/                  # Unit tests for the Phase 1 domain core
 ```
