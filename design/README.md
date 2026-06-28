@@ -4,10 +4,11 @@ UI design exploration for Clockinator. These are **mockups**, not the shipped fr
 
 ## Files
 
-- `Clockinator.dc.html` — interactive Design Canvas mockup of six screens: Time
-  Tracker, Timesheet, Reports, Projects/Clients, Approvals, and Audit.
-- `support.js` — the Design Canvas runtime the mockup loads (`<script src="./support.js">`).
-  Keep it in the same folder as the `.dc.html` file.
+- `Clockinator.html` — the design mockup, a self-contained standalone export from
+  Claude Design (runtime + React inlined). Just open it in a browser; no server or
+  other files needed. Covers six screens: Time Tracker, Timesheet, Reports,
+  Projects/Clients, Approvals, and Audit. To change it, edit the source in Claude
+  Design and re-export, replacing this file.
 - `thumbnail.webp` — preview thumbnail of the mockup.
 - `references/` — screenshots used as visual reference while designing. **These are
   screenshots of the Clockify product (a third-party vendor).** See the note below
@@ -15,8 +16,8 @@ UI design exploration for Clockinator. These are **mockups**, not the shipped fr
 
 ## Viewing the mockup
 
-Open `Clockinator.dc.html` in a browser. It expects `support.js` alongside it and
-loads React + fonts from CDNs, so an internet connection is needed.
+Open `Clockinator.html` directly in a browser (double-click). It only pulls fonts
+from Google Fonts, falling back to system fonts when offline.
 
 ## Note on the reference screenshots
 
