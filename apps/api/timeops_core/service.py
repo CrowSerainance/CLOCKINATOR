@@ -3,10 +3,11 @@ from __future__ import annotations
 import csv
 import io
 from collections import defaultdict
+from dataclasses import replace
 from datetime import UTC, date, datetime, time, timedelta
 from decimal import Decimal
 
-from .models import AuditLog, Client, Project, Task, TimeEntry, TimeEntrySource, User, Workspace
+from .models import AuditLog, Client, Project, ProjectStatus, ProjectSummary, Tag, Task, TimeEntry, TimeEntrySource, User, Workspace
 
 
 class TimeOpsService:
@@ -18,6 +19,7 @@ class TimeOpsService:
         self.clients: dict[str, Client] = {}
         self.projects: dict[str, Project] = {}
         self.tasks: dict[str, Task] = {}
+        self.tags: dict[str, Tag] = {}
         self.time_entries: dict[str, TimeEntry] = {}
         self.audit_logs: list[AuditLog] = []
 
@@ -38,11 +40,18 @@ class TimeOpsService:
         self.clients[client.id] = client
         return client
 
-    def add_project(self, workspace_id: str, name: str, *, client_id: str | None = None, billable_rate: Decimal | None = None) -> Project:
+    def add_project(self, workspace_id: str, name: str, *, client_id: str | None = None, billable_rate: Decimal | None = None, color: str | None = None, status: ProjectStatus = ProjectStatus.ACTIVE, estimated_hours: Decimal | None = None) -> Project:
         self._require_workspace(workspace_id)
-        project = Project(workspace_id=workspace_id, name=name, client_id=client_id, billable_rate=billable_rate)
+        project = Project(workspace_id=workspace_id, name=name, client_id=client_id, billable_rate=billable_rate, color=color, status=status, estimated_hours=estimated_hours)
         self.projects[project.id] = project
         return project
+
+    def set_project_status(self, project_id: str, status: ProjectStatus, *, actor_user_id: str) -> Project:
+        project = self.projects[project_id]
+        updated = replace(project, status=status)
+        self.projects[project_id] = updated
+        self._audit(project.workspace_id, actor_user_id, "project.status_changed", "project", project_id, metadata={"status": status.value})
+        return updated
 
     def add_task(self, workspace_id: str, project_id: str, name: str, *, billable_rate: Decimal | None = None) -> Task:
         self._require_workspace(workspace_id)
@@ -52,7 +61,13 @@ class TimeOpsService:
         self.tasks[task.id] = task
         return task
 
-    def start_timer(self, workspace_id: str, user_id: str, *, actor_user_id: str | None = None, description: str = "", project_id: str | None = None, task_id: str | None = None, is_billable: bool = False, started_at: datetime | None = None) -> TimeEntry:
+    def add_tag(self, workspace_id: str, name: str, *, color: str | None = None) -> Tag:
+        self._require_workspace(workspace_id)
+        tag = Tag(workspace_id=workspace_id, name=name, color=color)
+        self.tags[tag.id] = tag
+        return tag
+
+    def start_timer(self, workspace_id: str, user_id: str, *, actor_user_id: str | None = None, description: str = "", project_id: str | None = None, task_id: str | None = None, is_billable: bool = False, tag_ids: list[str] | None = None, started_at: datetime | None = None) -> TimeEntry:
         self._ensure_no_running_entry(workspace_id, user_id)
         entry = TimeEntry(
             workspace_id=workspace_id,
@@ -65,6 +80,7 @@ class TimeOpsService:
             is_billable=is_billable,
             billable_rate_snapshot=self._resolve_billable_rate(workspace_id, project_id, task_id) if is_billable else Decimal("0"),
             cost_rate_snapshot=self.users[user_id].default_cost_rate,
+            tag_ids=self._validate_tags(workspace_id, tag_ids),
         )
         self.time_entries[entry.id] = entry
         self._audit(workspace_id, entry.created_by_user_id, "time_entry.started", "time_entry", entry.id)
@@ -76,7 +92,7 @@ class TimeOpsService:
         self._audit(entry.workspace_id, actor_user_id, "time_entry.stopped", "time_entry", entry.id, metadata={"duration_seconds": entry.duration_seconds})
         return entry
 
-    def add_manual_entry(self, workspace_id: str, user_id: str, *, actor_user_id: str | None = None, description: str, start_at: datetime, end_at: datetime, project_id: str | None = None, task_id: str | None = None, is_billable: bool = False) -> TimeEntry:
+    def add_manual_entry(self, workspace_id: str, user_id: str, *, actor_user_id: str | None = None, description: str, start_at: datetime, end_at: datetime, project_id: str | None = None, task_id: str | None = None, is_billable: bool = False, tag_ids: list[str] | None = None) -> TimeEntry:
         if end_at <= start_at:
             raise ValueError("End time must be after start time")
         actor = actor_user_id or user_id
@@ -95,6 +111,7 @@ class TimeOpsService:
             billable_rate_snapshot=self._resolve_billable_rate(workspace_id, project_id, task_id) if is_billable else Decimal("0"),
             cost_rate_snapshot=self.users[user_id].default_cost_rate,
             source=source,
+            tag_ids=self._validate_tags(workspace_id, tag_ids),
         )
         self.time_entries[entry.id] = entry
         self._audit(workspace_id, actor, "time_entry.created", "time_entry", entry.id)
@@ -116,16 +133,45 @@ class TimeOpsService:
                 total += Decimal(entry.duration_seconds) / Decimal(3600) * entry.billable_rate_snapshot
         return total.quantize(Decimal("0.01"))
 
+    def project_summaries(self, workspace_id: str) -> dict[str, ProjectSummary]:
+        tracked: dict[str, int] = defaultdict(int)
+        billable_seconds: dict[str, int] = defaultdict(int)
+        billable_amount: dict[str, Decimal] = defaultdict(lambda: Decimal("0"))
+        for entry in self._completed_entries(workspace_id):
+            if not entry.project_id:
+                continue
+            tracked[entry.project_id] += entry.duration_seconds
+            if entry.is_billable:
+                billable_seconds[entry.project_id] += entry.duration_seconds
+                billable_amount[entry.project_id] += Decimal(entry.duration_seconds) / Decimal(3600) * entry.billable_rate_snapshot
+        summaries: dict[str, ProjectSummary] = {}
+        for project in self.projects.values():
+            if project.workspace_id != workspace_id:
+                continue
+            seconds = tracked[project.id]
+            estimated = project.estimated_hours
+            progress = (Decimal(seconds) / Decimal(3600) / estimated).quantize(Decimal("0.0001")) if estimated else None
+            summaries[project.id] = ProjectSummary(
+                project_id=project.id,
+                tracked_seconds=seconds,
+                billable_seconds=billable_seconds[project.id],
+                billable_amount=billable_amount[project.id].quantize(Decimal("0.01")),
+                estimated_hours=estimated,
+                progress=progress,
+            )
+        return summaries
+
     def export_csv(self, workspace_id: str) -> str:
         buffer = io.StringIO()
         writer = csv.writer(buffer)
-        writer.writerow(["entry_id", "user", "project", "task", "description", "start_at", "end_at", "duration_hours", "billable", "billable_rate"])
+        writer.writerow(["entry_id", "user", "project", "task", "tags", "description", "start_at", "end_at", "duration_hours", "billable", "billable_rate"])
         for entry in self._completed_entries(workspace_id):
             writer.writerow([
                 entry.id,
                 self.users[entry.user_id].email,
                 self.projects[entry.project_id].name if entry.project_id else "",
                 self.tasks[entry.task_id].name if entry.task_id else "",
+                ", ".join(self.tags[tag_id].name for tag_id in entry.tag_ids),
                 entry.description,
                 entry.start_at.isoformat(),
                 entry.end_at.isoformat() if entry.end_at else "",
@@ -144,6 +190,15 @@ class TimeOpsService:
         if project_id and self.projects[project_id].billable_rate is not None:
             return self.projects[project_id].billable_rate or Decimal("0")
         return self.workspaces[workspace_id].default_billable_rate
+
+    def _validate_tags(self, workspace_id: str, tag_ids: list[str] | None) -> list[str]:
+        if not tag_ids:
+            return []
+        for tag_id in tag_ids:
+            tag = self.tags.get(tag_id)
+            if tag is None or tag.workspace_id != workspace_id:
+                raise KeyError("Unknown tag")
+        return list(tag_ids)
 
     def _ensure_no_running_entry(self, workspace_id: str, user_id: str) -> None:
         if any(entry.workspace_id == workspace_id and entry.user_id == user_id and entry.is_running for entry in self.time_entries.values()):

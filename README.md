@@ -8,6 +8,7 @@ This repository currently implements the Phase 1 domain core:
 
 - single-workspace bootstrap
 - users, clients, projects, and tasks
+- tags on time entries
 - auditable timer start/stop
 - manual time entries
 - billable rate snapshots

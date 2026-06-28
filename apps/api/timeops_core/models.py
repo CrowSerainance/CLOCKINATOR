@@ -26,6 +26,12 @@ class ApprovalStatus(StrEnum):
     LOCKED = "locked"
 
 
+class ProjectStatus(StrEnum):
+    ACTIVE = "active"
+    ON_HOLD = "on_hold"
+    ARCHIVED = "archived"
+
+
 @dataclass(frozen=True)
 class Workspace:
     name: str
@@ -57,6 +63,9 @@ class Project:
     name: str
     client_id: str | None = None
     billable_rate: Decimal | None = None
+    color: str | None = None
+    status: ProjectStatus = ProjectStatus.ACTIVE
+    estimated_hours: Decimal | None = None
     id: str = field(default_factory=new_id)
 
 
@@ -66,6 +75,14 @@ class Task:
     project_id: str
     name: str
     billable_rate: Decimal | None = None
+    id: str = field(default_factory=new_id)
+
+
+@dataclass(frozen=True)
+class Tag:
+    workspace_id: str
+    name: str
+    color: str | None = None
     id: str = field(default_factory=new_id)
 
 
@@ -86,6 +103,7 @@ class TimeEntry:
     source: TimeEntrySource = TimeEntrySource.WEB
     approval_status: ApprovalStatus = ApprovalStatus.DRAFT
     timezone: str = "UTC"
+    tag_ids: list[str] = field(default_factory=list)
     id: str = field(default_factory=new_id)
     deleted_at: datetime | None = None
 
@@ -100,6 +118,18 @@ class TimeEntry:
             raise ValueError("Stop time must be after start time")
         self.end_at = stopped_at
         self.duration_seconds = int((stopped_at - self.start_at).total_seconds())
+
+
+@dataclass(frozen=True)
+class ProjectSummary:
+    """Per-project rollup over completed time entries (read model for the projects table)."""
+
+    project_id: str
+    tracked_seconds: int = 0
+    billable_seconds: int = 0
+    billable_amount: Decimal = Decimal("0")
+    estimated_hours: Decimal | None = None
+    progress: Decimal | None = None
 
 
 @dataclass(frozen=True)
