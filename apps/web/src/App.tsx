@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Sidebar } from "./components/Sidebar";
 import { TimeTracker } from "./screens/TimeTracker";
+import { Projects } from "./screens/Projects";
 import { Placeholder } from "./screens/Placeholder";
 import type { Screen } from "./types";
 import { theme } from "./theme";
@@ -35,7 +36,13 @@ export function App() {
           <span style={{ fontSize: 14, fontWeight: 700 }}>Northwind Studio</span>
           <span style={{ fontSize: 13, color: theme.textFaint }}>/ {TITLES[screen]}</span>
         </header>
-        {screen === "tracker" ? <TimeTracker /> : <Placeholder title={TITLES[screen]} />}
+        {screen === "tracker" ? (
+          <TimeTracker />
+        ) : screen === "projects" ? (
+          <Projects />
+        ) : (
+          <Placeholder title={TITLES[screen]} />
+        )}
       </main>
     </div>
   );

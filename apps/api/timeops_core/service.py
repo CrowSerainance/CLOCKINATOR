@@ -7,7 +7,7 @@ from dataclasses import replace
 from datetime import UTC, date, datetime, time, timedelta
 from decimal import Decimal
 
-from .models import AuditLog, Client, Project, ProjectStatus, ProjectSummary, Tag, Task, TimeEntry, TimeEntrySource, User, Workspace
+from .models import AuditLog, Client, Project, ProjectAccess, ProjectStatus, ProjectSummary, Tag, Task, TimeEntry, TimeEntrySource, User, Workspace
 
 
 class TimeOpsService:
@@ -40,9 +40,9 @@ class TimeOpsService:
         self.clients[client.id] = client
         return client
 
-    def add_project(self, workspace_id: str, name: str, *, client_id: str | None = None, billable_rate: Decimal | None = None, color: str | None = None, status: ProjectStatus = ProjectStatus.ACTIVE, estimated_hours: Decimal | None = None) -> Project:
+    def add_project(self, workspace_id: str, name: str, *, client_id: str | None = None, billable_rate: Decimal | None = None, color: str | None = None, status: ProjectStatus = ProjectStatus.ACTIVE, estimated_hours: Decimal | None = None, access: ProjectAccess = ProjectAccess.PUBLIC) -> Project:
         self._require_workspace(workspace_id)
-        project = Project(workspace_id=workspace_id, name=name, client_id=client_id, billable_rate=billable_rate, color=color, status=status, estimated_hours=estimated_hours)
+        project = Project(workspace_id=workspace_id, name=name, client_id=client_id, billable_rate=billable_rate, color=color, status=status, estimated_hours=estimated_hours, access=access)
         self.projects[project.id] = project
         return project
 
@@ -51,6 +51,12 @@ class TimeOpsService:
         updated = replace(project, status=status)
         self.projects[project_id] = updated
         self._audit(project.workspace_id, actor_user_id, "project.status_changed", "project", project_id, metadata={"status": status.value})
+        return updated
+
+    def set_project_favorite(self, project_id: str, is_favorite: bool) -> Project:
+        project = self.projects[project_id]
+        updated = replace(project, is_favorite=is_favorite)
+        self.projects[project_id] = updated
         return updated
 
     def add_task(self, workspace_id: str, project_id: str, name: str, *, billable_rate: Decimal | None = None) -> Task:

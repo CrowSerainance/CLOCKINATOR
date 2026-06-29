@@ -1,4 +1,4 @@
-import type { DayGroup } from "../types";
+import type { DayGroup, ProjectRow } from "../types";
 
 // Sample data mirroring the design mockup. Swap for the real API later.
 export const dayGroups: DayGroup[] = [
@@ -77,3 +77,12 @@ export const dayGroups: DayGroup[] = [
 ];
 
 export const weekTotal = "26:42:16";
+
+export const projects: ProjectRow[] = [
+  { name: "Mobile App v2", color: "#57b6b0", client: "Lumen Health", tracked: "68.2h", progress: 0.57, budget: "68 / 120h", rate: "$160/h", status: "Active", statusColor: "#5bbd7e", access: "public", favorite: true },
+  { name: "Brand Refresh", color: "#5bbd7e", client: "Acme Corp", tracked: "42.5h", progress: 0.71, budget: "42 / 60h", rate: "$145/h", status: "Active", statusColor: "#5bbd7e", access: "public", favorite: false },
+  { name: "Marketing Site", color: "#e0b15c", client: "Riverside Co", tracked: "31.8h", progress: 0.8, budget: "32 / 40h", rate: "$130/h", status: "Active", statusColor: "#5bbd7e", access: "public", favorite: false },
+  { name: "Design System", color: "#b58fd6", client: "Internal", tracked: "22.4h", progress: null, budget: "No budget", rate: "—", status: "Non-billable", statusColor: "#7d776e", access: "private", favorite: false },
+  { name: "Research & Discovery", color: "#7aa6e0", client: "Lumen Health", tracked: "18.6h", progress: 0.78, budget: "19 / 24h", rate: "$120/h", status: "Active", statusColor: "#5bbd7e", access: "private", favorite: true },
+  { name: "QA & Bugfixes", color: "#e08585", client: "Acme Corp", tracked: "14.2h", progress: 0.71, budget: "14 / 20h", rate: "$110/h", status: "On hold", statusColor: "#e0b15c", access: "public", favorite: false },
+];

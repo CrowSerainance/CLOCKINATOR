@@ -2,7 +2,7 @@ from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 from unittest import TestCase
 
-from apps.api.timeops_core import ProjectStatus, TimeOpsService
+from apps.api.timeops_core import ProjectAccess, ProjectStatus, TimeOpsService
 
 
 class TimeOpsServiceTest(TestCase):
@@ -90,6 +90,16 @@ class TimeOpsServiceTest(TestCase):
         self.assertEqual(project.color, "#57b6b0")
         self.assertEqual(project.estimated_hours, Decimal("120"))
         self.assertEqual(project.status, ProjectStatus.ACTIVE)
+        self.assertEqual(project.access, ProjectAccess.PUBLIC)
+        self.assertFalse(project.is_favorite)
+
+    def test_private_project_and_favorite_toggle(self):
+        project = self.service.add_project(self.workspace.id, "Secret", access=ProjectAccess.PRIVATE)
+        self.assertEqual(project.access, ProjectAccess.PRIVATE)
+
+        favorited = self.service.set_project_favorite(project.id, True)
+        self.assertTrue(favorited.is_favorite)
+        self.assertTrue(self.service.projects[project.id].is_favorite)
 
     def test_set_project_status_archives_and_audits(self):
         archived = self.service.set_project_status(self.project.id, ProjectStatus.ARCHIVED, actor_user_id=self.user.id)

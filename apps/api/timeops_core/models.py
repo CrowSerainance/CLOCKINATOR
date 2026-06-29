@@ -32,6 +32,11 @@ class ProjectStatus(StrEnum):
     ARCHIVED = "archived"
 
 
+class ProjectAccess(StrEnum):
+    PUBLIC = "public"
+    PRIVATE = "private"
+
+
 @dataclass(frozen=True)
 class Workspace:
     name: str
@@ -66,6 +71,8 @@ class Project:
     color: str | None = None
     status: ProjectStatus = ProjectStatus.ACTIVE
     estimated_hours: Decimal | None = None
+    access: ProjectAccess = ProjectAccess.PUBLIC
+    is_favorite: bool = False
     id: str = field(default_factory=new_id)
 
 
