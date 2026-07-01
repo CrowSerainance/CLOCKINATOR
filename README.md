@@ -8,14 +8,13 @@ This repository currently implements the Phase 1 domain core:
 
 - single-workspace bootstrap
 - users, clients, projects, and tasks
+- tags on time entries
 - auditable timer start/stop
 - manual time entries
 - billable rate snapshots
 - weekly timesheet summaries
 - monthly income summaries
 - CSV export for reports
-- timezone-aware entry validation
-- timesheet submit/approve/reject/lock state transitions
 
 The code is intentionally framework-light so the domain rules can be tested before adding web, worker, desktop, kiosk, or mobile shells.
 
@@ -23,6 +22,7 @@ The code is intentionally framework-light so the domain rules can be tested befo
 
 ```txt
 apps/api/timeops_core/  # Python domain package for the API service
+design/                 # UI mockups (Design Canvas) and reference screenshots
 infra/docker/           # Container/deployment notes and compose starter
 tests/                  # Unit tests for the Phase 1 domain core
 ```
@@ -46,3 +46,4 @@ python -m unittest discover -s tests
 9. Kiosk
 10. GPS/screenshots with privacy controls
 11. SSO, SCIM, webhooks, and enterprise administration
+```
