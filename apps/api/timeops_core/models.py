@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import UTC, date, datetime
+from datetime import UTC, datetime
 from decimal import Decimal
 from enum import StrEnum
 from uuid import uuid4
@@ -26,13 +26,15 @@ class ApprovalStatus(StrEnum):
     LOCKED = "locked"
 
 
-class TimesheetStatus(StrEnum):
-    DRAFT = "draft"
-    SUBMITTED = "submitted"
-    APPROVED = "approved"
-    REJECTED = "rejected"
-    WITHDRAWN = "withdrawn"
-    LOCKED = "locked"
+class ProjectStatus(StrEnum):
+    ACTIVE = "active"
+    ON_HOLD = "on_hold"
+    ARCHIVED = "archived"
+
+
+class ProjectAccess(StrEnum):
+    PUBLIC = "public"
+    PRIVATE = "private"
 
 
 @dataclass(frozen=True)
@@ -66,6 +68,11 @@ class Project:
     name: str
     client_id: str | None = None
     billable_rate: Decimal | None = None
+    color: str | None = None
+    status: ProjectStatus = ProjectStatus.ACTIVE
+    estimated_hours: Decimal | None = None
+    access: ProjectAccess = ProjectAccess.PUBLIC
+    is_favorite: bool = False
     id: str = field(default_factory=new_id)
 
 
@@ -75,6 +82,14 @@ class Task:
     project_id: str
     name: str
     billable_rate: Decimal | None = None
+    id: str = field(default_factory=new_id)
+
+
+@dataclass(frozen=True)
+class Tag:
+    workspace_id: str
+    name: str
+    color: str | None = None
     id: str = field(default_factory=new_id)
 
 
@@ -95,9 +110,9 @@ class TimeEntry:
     source: TimeEntrySource = TimeEntrySource.WEB
     approval_status: ApprovalStatus = ApprovalStatus.DRAFT
     timezone: str = "UTC"
+    tag_ids: list[str] = field(default_factory=list)
     id: str = field(default_factory=new_id)
     deleted_at: datetime | None = None
-    locked_at: datetime | None = None
 
     @property
     def is_running(self) -> bool:
@@ -112,19 +127,16 @@ class TimeEntry:
         self.duration_seconds = int((stopped_at - self.start_at).total_seconds())
 
 
-@dataclass
-class TimesheetPeriod:
-    workspace_id: str
-    user_id: str
-    period_start: date
-    period_end: date
-    status: TimesheetStatus = TimesheetStatus.DRAFT
-    submitted_at: datetime | None = None
-    decided_at: datetime | None = None
-    decided_by_user_id: str | None = None
-    decision_reason: str | None = None
-    locked_at: datetime | None = None
-    id: str = field(default_factory=new_id)
+@dataclass(frozen=True)
+class ProjectSummary:
+    """Per-project rollup over completed time entries (read model for the projects table)."""
+
+    project_id: str
+    tracked_seconds: int = 0
+    billable_seconds: int = 0
+    billable_amount: Decimal = Decimal("0")
+    estimated_hours: Decimal | None = None
+    progress: Decimal | None = None
 
 
 @dataclass(frozen=True)
@@ -136,27 +148,5 @@ class AuditLog:
     target_id: str
     created_at: datetime = field(default_factory=lambda: datetime.now(UTC))
     reason: str | None = None
-    old_value: dict[str, object] = field(default_factory=dict)
-    new_value: dict[str, object] = field(default_factory=dict)
     metadata: dict[str, object] = field(default_factory=dict)
     id: str = field(default_factory=new_id)
-
-
-@dataclass(frozen=True)
-class WeeklyUserSummary:
-    user_id: str
-    total_seconds: int
-    billable_seconds: int
-    revenue: Decimal
-    labor_cost: Decimal
-
-
-@dataclass(frozen=True)
-class MonthlyIncomeSummary:
-    workspace_id: str
-    year: int
-    month: int
-    billable_seconds: int
-    revenue: Decimal
-    labor_cost: Decimal
-    profit: Decimal

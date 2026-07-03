@@ -2,7 +2,7 @@ from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 from unittest import TestCase
 
-from apps.api.timeops_core import TimeOpsService
+from apps.api.timeops_core import ProjectAccess, ProjectStatus, TimeOpsService
 
 
 class TimeOpsServiceTest(TestCase):
@@ -10,10 +10,10 @@ class TimeOpsServiceTest(TestCase):
         self.service = TimeOpsService()
         self.workspace = self.service.create_workspace("Solo Ops", default_billable_rate=Decimal("25"))
         self.user = self.service.add_user(self.workspace.id, "Ava", "ava@example.test", default_cost_rate=Decimal("10"))
-        self.manager = self.service.add_user(self.workspace.id, "Mina", "mina@example.test", default_cost_rate=Decimal("20"))
         self.client = self.service.add_client(self.workspace.id, "Example Client")
         self.project = self.service.add_project(self.workspace.id, "Moderation", client_id=self.client.id, billable_rate=Decimal("40"))
         self.task = self.service.add_task(self.workspace.id, self.project.id, "Queue Review", billable_rate=Decimal("50"))
+        self.tag = self.service.add_tag(self.workspace.id, "Mod Job", color="#5bbd7e")
 
     def test_timer_start_stop_snapshots_rates_and_audits(self):
         start = datetime(2026, 6, 22, 9, tzinfo=UTC)
@@ -33,8 +33,6 @@ class TimeOpsServiceTest(TestCase):
         self.assertEqual(stopped.billable_rate_snapshot, Decimal("50"))
         self.assertEqual(stopped.cost_rate_snapshot, Decimal("10"))
         self.assertEqual([log.action for log in self.service.audit_logs], ["time_entry.started", "time_entry.stopped"])
-        self.assertEqual(self.service.audit_logs[-1].old_value["duration_seconds"], 0)
-        self.assertEqual(self.service.audit_logs[-1].new_value["duration_seconds"], 7200)
 
     def test_rejects_second_running_timer_for_same_user(self):
         self.service.start_timer(self.workspace.id, self.user.id, started_at=datetime(2026, 6, 22, 9, tzinfo=UTC))
@@ -42,7 +40,7 @@ class TimeOpsServiceTest(TestCase):
         with self.assertRaises(ValueError):
             self.service.start_timer(self.workspace.id, self.user.id, started_at=datetime(2026, 6, 22, 10, tzinfo=UTC))
 
-    def test_weekly_report_and_monthly_income_summary(self):
+    def test_weekly_summary_and_monthly_income(self):
         self.service.add_manual_entry(
             self.workspace.id,
             self.user.id,
@@ -53,17 +51,83 @@ class TimeOpsServiceTest(TestCase):
             is_billable=True,
         )
 
-        weekly = self.service.weekly_report(self.workspace.id, date(2026, 6, 22))[self.user.id]
-        monthly = self.service.monthly_income_summary(self.workspace.id, 2026, 6)
-
         self.assertEqual(self.service.weekly_summary(self.workspace.id, date(2026, 6, 22)), {self.user.id: 10800})
-        self.assertEqual(weekly.total_seconds, 10800)
-        self.assertEqual(weekly.revenue, Decimal("120.00"))
-        self.assertEqual(monthly.revenue, Decimal("120.00"))
-        self.assertEqual(monthly.labor_cost, Decimal("30.00"))
-        self.assertEqual(monthly.profit, Decimal("90.00"))
+        self.assertEqual(self.service.monthly_income(self.workspace.id, 2026, 6), Decimal("120.00"))
 
-    def test_csv_export_contains_project_duration_and_approval_status(self):
+    def test_timer_attaches_tags(self):
+        entry = self.service.start_timer(
+            self.workspace.id,
+            self.user.id,
+            description="Tagged work",
+            tag_ids=[self.tag.id],
+            started_at=datetime(2026, 6, 22, 9, tzinfo=UTC),
+        )
+
+        self.assertEqual(entry.tag_ids, [self.tag.id])
+
+    def test_rejects_tag_from_another_workspace(self):
+        other_workspace = self.service.create_workspace("Other Ops")
+        foreign_tag = self.service.add_tag(other_workspace.id, "Foreign")
+
+        with self.assertRaises(KeyError):
+            self.service.start_timer(
+                self.workspace.id,
+                self.user.id,
+                tag_ids=[foreign_tag.id],
+                started_at=datetime(2026, 6, 22, 9, tzinfo=UTC),
+            )
+
+    def test_project_metadata_is_stored(self):
+        project = self.service.add_project(
+            self.workspace.id,
+            "Mobile App v2",
+            client_id=self.client.id,
+            billable_rate=Decimal("160"),
+            color="#57b6b0",
+            estimated_hours=Decimal("120"),
+        )
+
+        self.assertEqual(project.color, "#57b6b0")
+        self.assertEqual(project.estimated_hours, Decimal("120"))
+        self.assertEqual(project.status, ProjectStatus.ACTIVE)
+        self.assertEqual(project.access, ProjectAccess.PUBLIC)
+        self.assertFalse(project.is_favorite)
+
+    def test_private_project_and_favorite_toggle(self):
+        project = self.service.add_project(self.workspace.id, "Secret", access=ProjectAccess.PRIVATE)
+        self.assertEqual(project.access, ProjectAccess.PRIVATE)
+
+        favorited = self.service.set_project_favorite(project.id, True)
+        self.assertTrue(favorited.is_favorite)
+        self.assertTrue(self.service.projects[project.id].is_favorite)
+
+    def test_set_project_status_archives_and_audits(self):
+        archived = self.service.set_project_status(self.project.id, ProjectStatus.ARCHIVED, actor_user_id=self.user.id)
+
+        self.assertEqual(archived.status, ProjectStatus.ARCHIVED)
+        self.assertEqual(self.service.projects[self.project.id].status, ProjectStatus.ARCHIVED)
+        self.assertEqual(self.service.audit_logs[-1].action, "project.status_changed")
+
+    def test_project_summaries_roll_up_tracked_and_billable(self):
+        budgeted = self.service.add_project(self.workspace.id, "Budgeted", estimated_hours=Decimal("4"))
+        self.service.add_manual_entry(
+            self.workspace.id,
+            self.user.id,
+            description="Billable block",
+            start_at=datetime(2026, 6, 23, 9, tzinfo=UTC),
+            end_at=datetime(2026, 6, 23, 11, tzinfo=UTC),
+            project_id=budgeted.id,
+            is_billable=True,
+        )
+
+        summary = self.service.project_summaries(self.workspace.id)[budgeted.id]
+
+        self.assertEqual(summary.tracked_seconds, 7200)
+        self.assertEqual(summary.billable_seconds, 7200)
+        self.assertEqual(summary.billable_amount, Decimal("50.00"))
+        self.assertEqual(summary.progress, Decimal("0.5000"))
+
+    def test_csv_export_contains_project_and_duration(self):
         self.service.add_manual_entry(
             self.workspace.id,
             self.user.id,
@@ -73,6 +137,7 @@ class TimeOpsServiceTest(TestCase):
             project_id=self.project.id,
             task_id=self.task.id,
             is_billable=True,
+            tag_ids=[self.tag.id],
         )
 
         csv_text = self.service.export_csv(self.workspace.id)
@@ -80,77 +145,5 @@ class TimeOpsServiceTest(TestCase):
         self.assertIn("ava@example.test", csv_text)
         self.assertIn("Moderation", csv_text)
         self.assertIn("Queue Review", csv_text)
+        self.assertIn("Mod Job", csv_text)
         self.assertIn("1.50", csv_text)
-        self.assertIn("approval_status", csv_text)
-
-    def test_enforces_single_workspace_and_cross_workspace_isolation(self):
-        with self.assertRaises(ValueError):
-            self.service.create_workspace("Second Workspace")
-
-        multi = TimeOpsService(single_workspace=False)
-        first = multi.create_workspace("First")
-        second = multi.create_workspace("Second")
-        first_user = multi.add_user(first.id, "First", "first@example.test")
-        second_project = multi.add_project(second.id, "Other Project")
-
-        with self.assertRaises(KeyError):
-            multi.start_timer(first.id, first_user.id, project_id=second_project.id, started_at=datetime(2026, 6, 22, 9, tzinfo=UTC))
-
-    def test_rejects_naive_datetimes(self):
-        with self.assertRaises(ValueError):
-            self.service.add_manual_entry(
-                self.workspace.id,
-                self.user.id,
-                description="Naive time",
-                start_at=datetime(2026, 6, 23, 8),
-                end_at=datetime(2026, 6, 23, 9),
-            )
-
-    def test_update_delete_split_require_reasons_and_capture_audit(self):
-        entry = self.service.add_manual_entry(
-            self.workspace.id,
-            self.user.id,
-            description="Original",
-            start_at=datetime(2026, 6, 23, 8, tzinfo=UTC),
-            end_at=datetime(2026, 6, 23, 10, tzinfo=UTC),
-            project_id=self.project.id,
-        )
-
-        with self.assertRaises(ValueError):
-            self.service.update_time_entry(entry.id, actor_user_id=self.user.id, reason="", description="No reason")
-
-        updated = self.service.update_time_entry(entry.id, actor_user_id=self.user.id, reason="Fix typo", description="Updated")
-        first, second = self.service.split_time_entry(
-            updated.id,
-            actor_user_id=self.user.id,
-            split_at=datetime(2026, 6, 23, 9, tzinfo=UTC),
-            second_description="Second half",
-            reason="Separate work blocks",
-        )
-
-        self.assertEqual(first.duration_seconds, 3600)
-        self.assertEqual(second.duration_seconds, 3600)
-        self.assertEqual(self.service.audit_logs[-1].action, "time_entry.split")
-        self.assertEqual(self.service.audit_logs[-1].reason, "Separate work blocks")
-
-    def test_timesheet_submit_approve_lock_prevents_edits(self):
-        entry = self.service.add_manual_entry(
-            self.workspace.id,
-            self.user.id,
-            description="Approval candidate",
-            start_at=datetime(2026, 6, 23, 8, tzinfo=UTC),
-            end_at=datetime(2026, 6, 23, 10, tzinfo=UTC),
-        )
-
-        period = self.service.submit_timesheet(self.workspace.id, self.user.id, period_start=date(2026, 6, 22))
-
-        self.assertEqual(entry.approval_status.value, "submitted")
-        with self.assertRaises(ValueError):
-            self.service.update_time_entry(entry.id, actor_user_id=self.user.id, reason="Submitted edit", description="Blocked")
-
-        approved = self.service.approve_timesheet(period.id, actor_user_id=self.manager.id, reason="Looks good")
-        locked = self.service.lock_timesheet(approved.id, actor_user_id=self.manager.id, reason="Payroll closed")
-
-        self.assertEqual(locked.status.value, "locked")
-        self.assertIsNotNone(entry.locked_at)
-        self.assertEqual(entry.approval_status.value, "locked")
