@@ -1,7 +1,11 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+<<<<<<< codex/create-clockify-style-self-hosted-time-system
 from datetime import UTC, date, datetime
+=======
+from datetime import UTC, datetime
+>>>>>>> main
 from decimal import Decimal
 from enum import StrEnum
 from uuid import uuid4
@@ -26,6 +30,7 @@ class ApprovalStatus(StrEnum):
     LOCKED = "locked"
 
 
+<<<<<<< codex/create-clockify-style-self-hosted-time-system
 class TimesheetStatus(StrEnum):
     DRAFT = "draft"
     SUBMITTED = "submitted"
@@ -37,6 +42,11 @@ class TimesheetStatus(StrEnum):
 
 class ProjectStatus(StrEnum):
     ACTIVE = "active"
+=======
+class ProjectStatus(StrEnum):
+    ACTIVE = "active"
+    ON_HOLD = "on_hold"
+>>>>>>> main
     ARCHIVED = "archived"
 
 
@@ -45,6 +55,7 @@ class ProjectAccess(StrEnum):
     PRIVATE = "private"
 
 
+<<<<<<< codex/create-clockify-style-self-hosted-time-system
 class ReportGroupBy(StrEnum):
     USER = "user"
     CLIENT = "client"
@@ -55,6 +66,8 @@ class ReportGroupBy(StrEnum):
     DAY = "day"
 
 
+=======
+>>>>>>> main
 @dataclass(frozen=True)
 class Workspace:
     name: str
@@ -86,10 +99,18 @@ class Project:
     name: str
     client_id: str | None = None
     billable_rate: Decimal | None = None
+<<<<<<< codex/create-clockify-style-self-hosted-time-system
     color: str = "#64748b"
     status: ProjectStatus = ProjectStatus.ACTIVE
     access: ProjectAccess = ProjectAccess.PUBLIC
     estimate_seconds: int | None = None
+=======
+    color: str | None = None
+    status: ProjectStatus = ProjectStatus.ACTIVE
+    estimated_hours: Decimal | None = None
+    access: ProjectAccess = ProjectAccess.PUBLIC
+    is_favorite: bool = False
+>>>>>>> main
     id: str = field(default_factory=new_id)
 
 
@@ -106,7 +127,11 @@ class Task:
 class Tag:
     workspace_id: str
     name: str
+<<<<<<< codex/create-clockify-style-self-hosted-time-system
     color: str = "#38bdf8"
+=======
+    color: str | None = None
+>>>>>>> main
     id: str = field(default_factory=new_id)
 
 
@@ -121,16 +146,25 @@ class TimeEntry:
     duration_seconds: int = 0
     project_id: str | None = None
     task_id: str | None = None
+<<<<<<< codex/create-clockify-style-self-hosted-time-system
     tag_ids: list[str] = field(default_factory=list)
+=======
+>>>>>>> main
     is_billable: bool = False
     billable_rate_snapshot: Decimal = Decimal("0")
     cost_rate_snapshot: Decimal = Decimal("0")
     source: TimeEntrySource = TimeEntrySource.WEB
     approval_status: ApprovalStatus = ApprovalStatus.DRAFT
     timezone: str = "UTC"
+<<<<<<< codex/create-clockify-style-self-hosted-time-system
     id: str = field(default_factory=new_id)
     deleted_at: datetime | None = None
     locked_at: datetime | None = None
+=======
+    tag_ids: list[str] = field(default_factory=list)
+    id: str = field(default_factory=new_id)
+    deleted_at: datetime | None = None
+>>>>>>> main
 
     @property
     def is_running(self) -> bool:
@@ -145,6 +179,7 @@ class TimeEntry:
         self.duration_seconds = int((stopped_at - self.start_at).total_seconds())
 
 
+<<<<<<< codex/create-clockify-style-self-hosted-time-system
 @dataclass
 class TimesheetPeriod:
     workspace_id: str
@@ -158,6 +193,18 @@ class TimesheetPeriod:
     decision_reason: str | None = None
     locked_at: datetime | None = None
     id: str = field(default_factory=new_id)
+=======
+@dataclass(frozen=True)
+class ProjectSummary:
+    """Per-project rollup over completed time entries (read model for the projects table)."""
+
+    project_id: str
+    tracked_seconds: int = 0
+    billable_seconds: int = 0
+    billable_amount: Decimal = Decimal("0")
+    estimated_hours: Decimal | None = None
+    progress: Decimal | None = None
+>>>>>>> main
 
 
 @dataclass(frozen=True)
@@ -169,6 +216,7 @@ class AuditLog:
     target_id: str
     created_at: datetime = field(default_factory=lambda: datetime.now(UTC))
     reason: str | None = None
+<<<<<<< codex/create-clockify-style-self-hosted-time-system
     old_value: dict[str, object] = field(default_factory=dict)
     new_value: dict[str, object] = field(default_factory=dict)
     metadata: dict[str, object] = field(default_factory=dict)
@@ -285,3 +333,7 @@ class CalendarWeek:
     user_ids: tuple[str, ...]
     total_seconds: int
     days: tuple[CalendarDay, ...]
+=======
+    metadata: dict[str, object] = field(default_factory=dict)
+    id: str = field(default_factory=new_id)
+>>>>>>> main

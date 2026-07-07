@@ -1,0 +1,52 @@
+:root {
+  --bg: #1c1a18;
+  --surface: #201e1c;
+  --surface-alt: #252220;
+  --border: #2c2926;
+  --text: #f4f1ec;
+  --text-muted: #9b948a;
+  --text-faint: #6b655c;
+  --accent: #5bbd7e;
+  --accent-ink: #16201c;
+  --danger: #e07a63;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+}
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: "Hanken Grotesk", system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-thumb {
+  background: #3a3633;
+  border-radius: 8px;
+  border: 2px solid var(--bg);
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+input::placeholder {
+  color: var(--text-faint);
+}
+
+.mono {
+  font-family: "JetBrains Mono", ui-monospace, monospace;
+}
