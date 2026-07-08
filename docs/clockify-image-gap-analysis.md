@@ -138,10 +138,17 @@ The current Phase 1 domain core covers only part of the screenshots:
 | Workspace | Single-workspace domain support | No web workspace switcher/settings/admin UI |
 | Users/team | Users exist in the domain | No invitations, roles, manager permissions, teams, or member UI |
 | Clients | Clients exist in the domain | No client CRUD UI, archived status, contact/billing metadata, or filters beyond direct IDs |
+<<<<<<< codex/create-clockify-style-self-hosted-time-system
+| Projects | Projects/tasks exist with billable rates, color, status, access, and estimate metadata | No project list UI, favorites, progress calculations, templates, budgets, or row actions |
+| Time tracker | Start/stop/manual entries, tags, and a tracker-week DTO exist | No web timer bar, continue action, favorites, required fields, breaks, or row menus |
+| Calendar | Calendar-week DTOs exist for event projection | Need real week/day UI grid, date navigation, teammate selector UI, positioned layout, drag/drop edits, and settings |
+| Reports | Weekly/monthly calculations, CSV export, report query objects, filters, and summary grouping exist | Need summary/detailed/weekly/shared UI, sorting, charts, rounding, estimates, share links, print/PDF/XLSX, and invoice handoff |
+=======
 | Projects | Projects/tasks exist with billable rates | No project list UI, project status, access, favorites, progress, templates, estimates, budgets, or row actions |
 | Time tracker | Start/stop/manual entries exist | No web timer bar, continue action, day grouping API, favorites, required fields, breaks, tags, or row menus |
 | Calendar | No real calendar module | Need week/day grid, date navigation, teammate selector, positioned entry layout, drag/drop edits, and daily totals |
 | Reports | Weekly/monthly calculations and CSV export exist | Need summary/detailed/weekly/shared report views, filters, grouping, sorting, charts, rounding, estimates, share links, print/PDF/XLSX, and invoice handoff |
+>>>>>>> main
 | Timesheets | Submit/approve/reject/lock exists | Need period listing, withdrawal, manager queues, comments, reminders, attendance/overtime report, and UI |
 | Audit | Old/new audit snapshots exist | Need append-only persistence, audit search/export, IP/user agent, actor role, override reasons, and admin audit UI |
 | Billing | Billable rates and revenue exist | Need invoices, recurring invoices, invoice PDFs, expenses, tax, payments, multiple currencies, and accounting integrations |
@@ -190,6 +197,13 @@ To match the core visible screenshots without overbuilding enterprise features, 
 
 These are the smallest useful code changes that should come before building the UI:
 
+<<<<<<< codex/create-clockify-style-self-hosted-time-system
+- Add repository interfaces so the domain can move from in-memory storage to PostgreSQL without rewriting business rules.
+- Add permission checks for manager actions, including add-time-for-others and approve/lock timesheets.
+- Add project progress calculations, favorites, templates, budgets, and archived-list filtering.
+- Add detailed report rows, shared report links, rounding, chart-ready buckets, and PDF/XLSX export adapters.
+- Add HTTP API schemas/routes for the tracker week, calendar week, project list, and report summary DTOs.
+=======
 - Add `Tag` and time-entry tag assignment support.
 - Add project status, access level, color, estimate, and archived fields.
 - Add report query objects with filters for user/team, client, project, task, tag, description, and date range.
@@ -197,3 +211,4 @@ These are the smallest useful code changes that should come before building the 
 - Add calendar event DTOs with start/end/duration/project/task/tag display data.
 - Add repository interfaces so the domain can move from in-memory storage to PostgreSQL without rewriting business rules.
 - Add permission checks for manager actions, including add-time-for-others and approve/lock timesheets.
+>>>>>>> main

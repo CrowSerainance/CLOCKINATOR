@@ -7,14 +7,26 @@ Clockinator is a self-hosted time operations starter system for individuals and 
 This repository currently implements the Phase 1 domain core:
 
 - single-workspace bootstrap
+<<<<<<< codex/create-clockify-style-self-hosted-time-system
+- users, clients, projects, tasks, and tags
+=======
 - users, clients, projects, and tasks
 - tags on time entries
+>>>>>>> main
 - auditable timer start/stop
 - manual time entries
 - billable rate snapshots
 - weekly timesheet summaries
+<<<<<<< codex/create-clockify-style-self-hosted-time-system
+- tracker-week, calendar-week, and report-summary DTOs
 - monthly income summaries
 - CSV export for reports
+- timezone-aware entry validation
+- timesheet submit/approve/reject/lock state transitions
+=======
+- monthly income summaries
+- CSV export for reports
+>>>>>>> main
 
 The code is intentionally framework-light so the domain rules can be tested before adding web, worker, desktop, kiosk, or mobile shells.
 
@@ -22,7 +34,10 @@ The code is intentionally framework-light so the domain rules can be tested befo
 
 ```txt
 apps/api/timeops_core/  # Python domain package for the API service
+<<<<<<< codex/create-clockify-style-self-hosted-time-system
+=======
 design/                 # UI mockups (Design Canvas) and reference screenshots
+>>>>>>> main
 infra/docker/           # Container/deployment notes and compose starter
 tests/                  # Unit tests for the Phase 1 domain core
 ```
@@ -33,6 +48,13 @@ tests/                  # Unit tests for the Phase 1 domain core
 python -m unittest discover -s tests
 ```
 
+<<<<<<< codex/create-clockify-style-self-hosted-time-system
+## Product analysis
+
+- [Clockify screenshot gap analysis](docs/clockify-image-gap-analysis.md) tracks what is visible in the reference screenshots and what Clockinator still needs to implement.
+
+=======
+>>>>>>> main
 ## Roadmap
 
 1. Timer and manual entry
@@ -46,4 +68,7 @@ python -m unittest discover -s tests
 9. Kiosk
 10. GPS/screenshots with privacy controls
 11. SSO, SCIM, webhooks, and enterprise administration
+<<<<<<< codex/create-clockify-style-self-hosted-time-system
+=======
 ```
+>>>>>>> main

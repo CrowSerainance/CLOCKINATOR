@@ -4,6 +4,12 @@ __pycache__/
 .ruff_cache/
 .venv/
 .env
+<<<<<<< codex/create-clockify-style-self-hosted-time-system
+node_modules/
+dist/
+build/
+=======
 
 # Vendor reference screenshots — keep local, do not publish (Clockify UI captures)
 design/references/
+>>>>>>> main
