@@ -7,6 +7,9 @@ from datetime import UTC, date, datetime, time, timedelta
 from decimal import Decimal
 
 from .in_memory import InMemoryTimeOpsStore
+from datetime import UTC, date, datetime, time, timedelta
+from decimal import Decimal
+
 from .models import (
     ApprovalStatus,
     AuditLog,
@@ -54,6 +57,16 @@ class TimeOpsService:
         self.time_entries = self.store.time_entries
         self.timesheet_periods = self.store.timesheet_periods
         self.audit_logs = self.store.audit_logs
+        self.workspaces: dict[str, Workspace] = {}
+        self.users: dict[str, User] = {}
+        self.clients: dict[str, Client] = {}
+        self.projects: dict[str, Project] = {}
+        self.tasks: dict[str, Task] = {}
+        self.tags: dict[str, Tag] = {}
+        self.time_entries: dict[str, TimeEntry] = {}
+        self.timesheet_periods: dict[str, TimesheetPeriod] = {}
+        self.audit_logs: list[AuditLog] = []
+
 
     def create_workspace(self, name: str, *, default_billable_rate: Decimal = Decimal("0"), currency: str = "USD") -> Workspace:
         if self.single_workspace and self.workspaces:
@@ -111,6 +124,7 @@ class TimeOpsService:
         self.tasks[task.id] = task
         return task
 
+    def add_tag(self, workspace_id: str, name: str, *, color: str = "#38bdf8") -> Tag:
     def add_tag(self, workspace_id: str, name: str, *, color: str = "#38bdf8") -> Tag:
         self._require_workspace(workspace_id)
         tag = Tag(workspace_id=workspace_id, name=name, color=color)
@@ -202,6 +216,7 @@ class TimeOpsService:
             duration_seconds=int((end_at - start_at).total_seconds()),
             project_id=project_id,
             task_id=task_id,
+            tag_ids=list(tag_ids),
             tag_ids=list(tag_ids),
             is_billable=is_billable,
             billable_rate_snapshot=self._resolve_billable_rate(workspace_id, project_id, task_id) if is_billable else Decimal("0"),
@@ -496,6 +511,7 @@ class TimeOpsService:
                 f"{entry.duration_seconds / 3600:.2f}",
                 str(entry.is_billable).lower(),
                 str(entry.billable_rate_snapshot),
+                entry.approval_status.value,
                 entry.approval_status.value,
             ])
         return buffer.getvalue()

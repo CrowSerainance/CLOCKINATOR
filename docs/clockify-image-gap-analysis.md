@@ -195,3 +195,8 @@ These are the smallest useful code changes that should come before building the 
 - Add project progress calculations, favorites, templates, budgets, and archived-list filtering.
 - Add detailed report rows, shared report links, rounding, chart-ready buckets, and PDF/XLSX export adapters.
 - Harden HTTP API schemas/routes with response models, error mapping, auth dependencies, and API tests.
+- Add repository interfaces so the domain can move from in-memory storage to PostgreSQL without rewriting business rules.
+- Add permission checks for manager actions, including add-time-for-others and approve/lock timesheets.
+- Add project progress calculations, favorites, templates, budgets, and archived-list filtering.
+- Add detailed report rows, shared report links, rounding, chart-ready buckets, and PDF/XLSX export adapters.
+- Add HTTP API schemas/routes for the tracker week, calendar week, project list, and report summary DTOs.
