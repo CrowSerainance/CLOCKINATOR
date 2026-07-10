@@ -1,6 +1,6 @@
 """Clockinator Phase 1 time operations domain core."""
 
-<<<<<<< codex/create-clockify-style-self-hosted-time-system
+from .in_memory import InMemoryTimeOpsStore
 from .models import (
     CalendarDay,
     CalendarEvent,
@@ -31,6 +31,7 @@ __all__ = [
     "CalendarEvent",
     "CalendarWeek",
     "Client",
+    "InMemoryTimeOpsStore",
     "MonthlyIncomeSummary",
     "Project",
     "ProjectAccess",
@@ -38,30 +39,15 @@ __all__ = [
     "ReportGroupBy",
     "ReportQuery",
     "ReportSummaryRow",
-=======
-from .models import Client, Project, ProjectAccess, ProjectStatus, ProjectSummary, Tag, Task, TimeEntry, User, Workspace
-from .service import TimeOpsService
-
-__all__ = [
-    "Client",
-    "Project",
-    "ProjectAccess",
-    "ProjectStatus",
-    "ProjectSummary",
->>>>>>> main
     "Tag",
     "Task",
     "TimeEntry",
     "TimeOpsService",
-<<<<<<< codex/create-clockify-style-self-hosted-time-system
     "TimeTrackerDay",
     "TimeTrackerEntry",
     "TimeTrackerWeek",
     "TimesheetPeriod",
     "User",
     "WeeklyUserSummary",
-=======
-    "User",
->>>>>>> main
     "Workspace",
 ]

@@ -3,7 +3,10 @@ from __future__ import annotations
 import csv
 import io
 from collections import defaultdict
-<<<<<<< codex/create-clockify-style-self-hosted-time-system
+from datetime import UTC, date, datetime, time, timedelta
+from decimal import Decimal
+
+from .in_memory import InMemoryTimeOpsStore
 from datetime import UTC, date, datetime, time, timedelta
 from decimal import Decimal
 
@@ -34,6 +37,7 @@ from .models import (
     WeeklyUserSummary,
     Workspace,
 )
+from .repositories import TimeOpsStore
 
 LOCKED_ENTRY_STATUSES = {ApprovalStatus.APPROVED, ApprovalStatus.LOCKED, ApprovalStatus.SUBMITTED}
 
@@ -41,21 +45,18 @@ LOCKED_ENTRY_STATUSES = {ApprovalStatus.APPROVED, ApprovalStatus.LOCKED, Approva
 class TimeOpsService:
     """In-memory Phase 1 application service with auditable time-entry and timesheet operations."""
 
-    def __init__(self, *, single_workspace: bool = True) -> None:
+    def __init__(self, *, single_workspace: bool = True, store: TimeOpsStore | None = None) -> None:
         self.single_workspace = single_workspace
-=======
-from dataclasses import replace
-from datetime import UTC, date, datetime, time, timedelta
-from decimal import Decimal
-
-from .models import AuditLog, Client, Project, ProjectAccess, ProjectStatus, ProjectSummary, Tag, Task, TimeEntry, TimeEntrySource, User, Workspace
-
-
-class TimeOpsService:
-    """In-memory Phase 1 application service with auditable time-entry operations."""
-
-    def __init__(self) -> None:
->>>>>>> main
+        self.store = store or InMemoryTimeOpsStore()
+        self.workspaces = self.store.workspaces
+        self.users = self.store.users
+        self.clients = self.store.clients
+        self.projects = self.store.projects
+        self.tasks = self.store.tasks
+        self.tags = self.store.tags
+        self.time_entries = self.store.time_entries
+        self.timesheet_periods = self.store.timesheet_periods
+        self.audit_logs = self.store.audit_logs
         self.workspaces: dict[str, Workspace] = {}
         self.users: dict[str, User] = {}
         self.clients: dict[str, Client] = {}
@@ -63,18 +64,13 @@ class TimeOpsService:
         self.tasks: dict[str, Task] = {}
         self.tags: dict[str, Tag] = {}
         self.time_entries: dict[str, TimeEntry] = {}
-<<<<<<< codex/create-clockify-style-self-hosted-time-system
         self.timesheet_periods: dict[str, TimesheetPeriod] = {}
         self.audit_logs: list[AuditLog] = []
+
 
     def create_workspace(self, name: str, *, default_billable_rate: Decimal = Decimal("0"), currency: str = "USD") -> Workspace:
         if self.single_workspace and self.workspaces:
             raise ValueError("This service is configured for a single self-hosted workspace")
-=======
-        self.audit_logs: list[AuditLog] = []
-
-    def create_workspace(self, name: str, *, default_billable_rate: Decimal = Decimal("0"), currency: str = "USD") -> Workspace:
->>>>>>> main
         workspace = Workspace(name=name, default_billable_rate=default_billable_rate, currency=currency)
         self.workspaces[workspace.id] = workspace
         return workspace
@@ -91,7 +87,6 @@ class TimeOpsService:
         self.clients[client.id] = client
         return client
 
-<<<<<<< codex/create-clockify-style-self-hosted-time-system
     def add_project(
         self,
         workspace_id: str,
@@ -125,46 +120,17 @@ class TimeOpsService:
     def add_task(self, workspace_id: str, project_id: str, name: str, *, billable_rate: Decimal | None = None) -> Task:
         self._require_workspace(workspace_id)
         self._require_project(workspace_id, project_id)
-=======
-    def add_project(self, workspace_id: str, name: str, *, client_id: str | None = None, billable_rate: Decimal | None = None, color: str | None = None, status: ProjectStatus = ProjectStatus.ACTIVE, estimated_hours: Decimal | None = None, access: ProjectAccess = ProjectAccess.PUBLIC) -> Project:
-        self._require_workspace(workspace_id)
-        project = Project(workspace_id=workspace_id, name=name, client_id=client_id, billable_rate=billable_rate, color=color, status=status, estimated_hours=estimated_hours, access=access)
-        self.projects[project.id] = project
-        return project
-
-    def set_project_status(self, project_id: str, status: ProjectStatus, *, actor_user_id: str) -> Project:
-        project = self.projects[project_id]
-        updated = replace(project, status=status)
-        self.projects[project_id] = updated
-        self._audit(project.workspace_id, actor_user_id, "project.status_changed", "project", project_id, metadata={"status": status.value})
-        return updated
-
-    def set_project_favorite(self, project_id: str, is_favorite: bool) -> Project:
-        project = self.projects[project_id]
-        updated = replace(project, is_favorite=is_favorite)
-        self.projects[project_id] = updated
-        return updated
-
-    def add_task(self, workspace_id: str, project_id: str, name: str, *, billable_rate: Decimal | None = None) -> Task:
-        self._require_workspace(workspace_id)
-        if project_id not in self.projects:
-            raise KeyError("Unknown project")
->>>>>>> main
         task = Task(workspace_id=workspace_id, project_id=project_id, name=name, billable_rate=billable_rate)
         self.tasks[task.id] = task
         return task
 
-<<<<<<< codex/create-clockify-style-self-hosted-time-system
     def add_tag(self, workspace_id: str, name: str, *, color: str = "#38bdf8") -> Tag:
-=======
-    def add_tag(self, workspace_id: str, name: str, *, color: str | None = None) -> Tag:
->>>>>>> main
+    def add_tag(self, workspace_id: str, name: str, *, color: str = "#38bdf8") -> Tag:
         self._require_workspace(workspace_id)
         tag = Tag(workspace_id=workspace_id, name=name, color=color)
         self.tags[tag.id] = tag
         return tag
 
-<<<<<<< codex/create-clockify-style-self-hosted-time-system
     def start_timer(
         self,
         workspace_id: str,
@@ -182,14 +148,10 @@ class TimeOpsService:
         started = started_at or datetime.now(UTC)
         self._validate_entry_context(workspace_id, user_id, actor, project_id, task_id, tag_ids)
         self._require_aware_datetime(started, "started_at")
-=======
-    def start_timer(self, workspace_id: str, user_id: str, *, actor_user_id: str | None = None, description: str = "", project_id: str | None = None, task_id: str | None = None, is_billable: bool = False, tag_ids: list[str] | None = None, started_at: datetime | None = None) -> TimeEntry:
->>>>>>> main
         self._ensure_no_running_entry(workspace_id, user_id)
         entry = TimeEntry(
             workspace_id=workspace_id,
             user_id=user_id,
-<<<<<<< codex/create-clockify-style-self-hosted-time-system
             created_by_user_id=actor,
             description=description,
             start_at=started,
@@ -243,32 +205,6 @@ class TimeOpsService:
         self._require_aware_datetime(end_at, "end_at")
         if end_at <= start_at:
             raise ValueError("End time must be after start time")
-=======
-            created_by_user_id=actor_user_id or user_id,
-            description=description,
-            start_at=started_at or datetime.now(UTC),
-            project_id=project_id,
-            task_id=task_id,
-            is_billable=is_billable,
-            billable_rate_snapshot=self._resolve_billable_rate(workspace_id, project_id, task_id) if is_billable else Decimal("0"),
-            cost_rate_snapshot=self.users[user_id].default_cost_rate,
-            tag_ids=self._validate_tags(workspace_id, tag_ids),
-        )
-        self.time_entries[entry.id] = entry
-        self._audit(workspace_id, entry.created_by_user_id, "time_entry.started", "time_entry", entry.id)
-        return entry
-
-    def stop_timer(self, entry_id: str, *, actor_user_id: str, stopped_at: datetime | None = None) -> TimeEntry:
-        entry = self.time_entries[entry_id]
-        entry.stop(stopped_at or datetime.now(UTC))
-        self._audit(entry.workspace_id, actor_user_id, "time_entry.stopped", "time_entry", entry.id, metadata={"duration_seconds": entry.duration_seconds})
-        return entry
-
-    def add_manual_entry(self, workspace_id: str, user_id: str, *, actor_user_id: str | None = None, description: str, start_at: datetime, end_at: datetime, project_id: str | None = None, task_id: str | None = None, is_billable: bool = False, tag_ids: list[str] | None = None) -> TimeEntry:
-        if end_at <= start_at:
-            raise ValueError("End time must be after start time")
-        actor = actor_user_id or user_id
->>>>>>> main
         source = TimeEntrySource.MANAGER_MANUAL if actor != user_id else TimeEntrySource.WEB
         entry = TimeEntry(
             workspace_id=workspace_id,
@@ -280,15 +216,12 @@ class TimeOpsService:
             duration_seconds=int((end_at - start_at).total_seconds()),
             project_id=project_id,
             task_id=task_id,
-<<<<<<< codex/create-clockify-style-self-hosted-time-system
             tag_ids=list(tag_ids),
-=======
->>>>>>> main
+            tag_ids=list(tag_ids),
             is_billable=is_billable,
             billable_rate_snapshot=self._resolve_billable_rate(workspace_id, project_id, task_id) if is_billable else Decimal("0"),
             cost_rate_snapshot=self.users[user_id].default_cost_rate,
             source=source,
-<<<<<<< codex/create-clockify-style-self-hosted-time-system
         )
         self.time_entries[entry.id] = entry
         self._audit(workspace_id, actor, "time_entry.created", "time_entry", entry.id, new_value=self._entry_snapshot(entry))
@@ -566,89 +499,26 @@ class TimeOpsService:
         buffer = io.StringIO()
         writer = csv.writer(buffer)
         writer.writerow(["entry_id", "user", "project", "task", "description", "start_at", "end_at", "duration_hours", "billable", "billable_rate", "approval_status"])
-=======
-            tag_ids=self._validate_tags(workspace_id, tag_ids),
-        )
-        self.time_entries[entry.id] = entry
-        self._audit(workspace_id, actor, "time_entry.created", "time_entry", entry.id)
-        return entry
-
-    def weekly_summary(self, workspace_id: str, week_start: date) -> dict[str, int]:
-        start = datetime.combine(week_start, time.min, tzinfo=UTC)
-        end = start + timedelta(days=7)
-        totals: dict[str, int] = defaultdict(int)
-        for entry in self._completed_entries(workspace_id):
-            if start <= entry.start_at < end:
-                totals[entry.user_id] += entry.duration_seconds
-        return dict(totals)
-
-    def monthly_income(self, workspace_id: str, year: int, month: int) -> Decimal:
-        total = Decimal("0")
-        for entry in self._completed_entries(workspace_id):
-            if entry.start_at.year == year and entry.start_at.month == month and entry.is_billable:
-                total += Decimal(entry.duration_seconds) / Decimal(3600) * entry.billable_rate_snapshot
-        return total.quantize(Decimal("0.01"))
-
-    def project_summaries(self, workspace_id: str) -> dict[str, ProjectSummary]:
-        tracked: dict[str, int] = defaultdict(int)
-        billable_seconds: dict[str, int] = defaultdict(int)
-        billable_amount: dict[str, Decimal] = defaultdict(lambda: Decimal("0"))
-        for entry in self._completed_entries(workspace_id):
-            if not entry.project_id:
-                continue
-            tracked[entry.project_id] += entry.duration_seconds
-            if entry.is_billable:
-                billable_seconds[entry.project_id] += entry.duration_seconds
-                billable_amount[entry.project_id] += Decimal(entry.duration_seconds) / Decimal(3600) * entry.billable_rate_snapshot
-        summaries: dict[str, ProjectSummary] = {}
-        for project in self.projects.values():
-            if project.workspace_id != workspace_id:
-                continue
-            seconds = tracked[project.id]
-            estimated = project.estimated_hours
-            progress = (Decimal(seconds) / Decimal(3600) / estimated).quantize(Decimal("0.0001")) if estimated else None
-            summaries[project.id] = ProjectSummary(
-                project_id=project.id,
-                tracked_seconds=seconds,
-                billable_seconds=billable_seconds[project.id],
-                billable_amount=billable_amount[project.id].quantize(Decimal("0.01")),
-                estimated_hours=estimated,
-                progress=progress,
-            )
-        return summaries
-
-    def export_csv(self, workspace_id: str) -> str:
-        buffer = io.StringIO()
-        writer = csv.writer(buffer)
-        writer.writerow(["entry_id", "user", "project", "task", "tags", "description", "start_at", "end_at", "duration_hours", "billable", "billable_rate"])
->>>>>>> main
         for entry in self._completed_entries(workspace_id):
             writer.writerow([
                 entry.id,
                 self.users[entry.user_id].email,
                 self.projects[entry.project_id].name if entry.project_id else "",
                 self.tasks[entry.task_id].name if entry.task_id else "",
-<<<<<<< codex/create-clockify-style-self-hosted-time-system
-=======
-                ", ".join(self.tags[tag_id].name for tag_id in entry.tag_ids),
->>>>>>> main
                 entry.description,
                 entry.start_at.isoformat(),
                 entry.end_at.isoformat() if entry.end_at else "",
                 f"{entry.duration_seconds / 3600:.2f}",
                 str(entry.is_billable).lower(),
                 str(entry.billable_rate_snapshot),
-<<<<<<< codex/create-clockify-style-self-hosted-time-system
                 entry.approval_status.value,
-=======
->>>>>>> main
+                entry.approval_status.value,
             ])
         return buffer.getvalue()
 
     def _completed_entries(self, workspace_id: str) -> list[TimeEntry]:
         return [entry for entry in self.time_entries.values() if entry.workspace_id == workspace_id and not entry.is_running and entry.deleted_at is None]
 
-<<<<<<< codex/create-clockify-style-self-hosted-time-system
     def _entries_for_period(self, period: TimesheetPeriod) -> list[TimeEntry]:
         start = datetime.combine(period.period_start, time.min, tzinfo=UTC)
         end = datetime.combine(period.period_end + timedelta(days=1), time.min, tzinfo=UTC)
@@ -691,29 +561,11 @@ class TimeOpsService:
         if task_id:
             self._require_task(workspace_id, task_id, project_id=project_id)
         self._validate_tag_ids(workspace_id, tag_ids)
-=======
-    def _resolve_billable_rate(self, workspace_id: str, project_id: str | None, task_id: str | None) -> Decimal:
-        if task_id and self.tasks[task_id].billable_rate is not None:
-            return self.tasks[task_id].billable_rate or Decimal("0")
-        if project_id and self.projects[project_id].billable_rate is not None:
-            return self.projects[project_id].billable_rate or Decimal("0")
-        return self.workspaces[workspace_id].default_billable_rate
-
-    def _validate_tags(self, workspace_id: str, tag_ids: list[str] | None) -> list[str]:
-        if not tag_ids:
-            return []
-        for tag_id in tag_ids:
-            tag = self.tags.get(tag_id)
-            if tag is None or tag.workspace_id != workspace_id:
-                raise KeyError("Unknown tag")
-        return list(tag_ids)
->>>>>>> main
 
     def _ensure_no_running_entry(self, workspace_id: str, user_id: str) -> None:
         if any(entry.workspace_id == workspace_id and entry.user_id == user_id and entry.is_running for entry in self.time_entries.values()):
             raise ValueError("User already has a running timer")
 
-<<<<<<< codex/create-clockify-style-self-hosted-time-system
     def _ensure_entry_editable(self, entry: TimeEntry, *, reason: str) -> None:
         if not reason.strip():
             raise ValueError("A reason is required for auditable time entry changes")
@@ -960,11 +812,3 @@ class TimeOpsService:
                 metadata=metadata or {},
             )
         )
-=======
-    def _require_workspace(self, workspace_id: str) -> None:
-        if workspace_id not in self.workspaces:
-            raise KeyError("Unknown workspace")
-
-    def _audit(self, workspace_id: str, actor_user_id: str, action: str, target_type: str, target_id: str, *, metadata: dict[str, object] | None = None) -> None:
-        self.audit_logs.append(AuditLog(workspace_id=workspace_id, actor_user_id=actor_user_id, action=action, target_type=target_type, target_id=target_id, metadata=metadata or {}))
->>>>>>> main
