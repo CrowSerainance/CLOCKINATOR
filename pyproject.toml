@@ -1,0 +1,13 @@
+[project]
+name = "clockinator"
+version = "0.1.0"
+description = "Self-hosted time operations starter system"
+requires-python = ">=3.12"
+dependencies = [
+  "fastapi>=0.115",
+  "pydantic>=2",
+  "uvicorn>=0.30",
+]
+
+[tool.ruff]
+line-length = 140
