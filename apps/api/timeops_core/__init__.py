@@ -9,7 +9,10 @@ from .models import (
     MonthlyIncomeSummary,
     Project,
     ProjectAccess,
+    ProjectListItem,
     ProjectStatus,
+    ReportChartBucket,
+    ReportDetailedRow,
     ReportGroupBy,
     ReportQuery,
     ReportSummaryRow,
@@ -23,6 +26,7 @@ from .models import (
     User,
     WeeklyUserSummary,
     Workspace,
+    WorkspaceRole,
 )
 from .service import TimeOpsService
 
@@ -35,7 +39,10 @@ __all__ = [
     "MonthlyIncomeSummary",
     "Project",
     "ProjectAccess",
+    "ProjectListItem",
     "ProjectStatus",
+    "ReportChartBucket",
+    "ReportDetailedRow",
     "ReportGroupBy",
     "ReportQuery",
     "ReportSummaryRow",
@@ -50,4 +57,5 @@ __all__ = [
     "User",
     "WeeklyUserSummary",
     "Workspace",
+    "WorkspaceRole",
 ]

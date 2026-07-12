@@ -18,3 +18,4 @@ class InMemoryTimeOpsStore:
     time_entries: dict[str, TimeEntry] = field(default_factory=dict)
     timesheet_periods: dict[str, TimesheetPeriod] = field(default_factory=dict)
     audit_logs: list[AuditLog] = field(default_factory=list)
+    favorite_projects_by_user: dict[str, set[str]] = field(default_factory=dict)

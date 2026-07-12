@@ -5,7 +5,7 @@ from decimal import Decimal
 
 from pydantic import BaseModel, Field
 
-from apps.api.timeops_core.models import ProjectAccess, ProjectStatus, ReportGroupBy
+from apps.api.timeops_core.models import ProjectAccess, ProjectStatus, ReportGroupBy, WorkspaceRole
 
 
 class CreateWorkspaceRequest(BaseModel):
@@ -19,6 +19,7 @@ class CreateUserRequest(BaseModel):
     name: str
     email: str
     default_cost_rate: Decimal = Decimal("0")
+    role: WorkspaceRole = WorkspaceRole.MEMBER
 
 
 class CreateClientRequest(BaseModel):
@@ -35,6 +36,8 @@ class CreateProjectRequest(BaseModel):
     status: ProjectStatus = ProjectStatus.ACTIVE
     access: ProjectAccess = ProjectAccess.PUBLIC
     estimate_seconds: int | None = Field(default=None, ge=0)
+    budget_amount: Decimal | None = Field(default=None, ge=0)
+    template_name: str | None = None
 
 
 class CreateTagRequest(BaseModel):

@@ -20,6 +20,10 @@ from .models import (
     MonthlyIncomeSummary,
     Project,
     ProjectAccess,
+    ProjectListItem,
+    ProjectStatus,
+    ReportChartBucket,
+    ReportDetailedRow,
     ProjectStatus,
     ReportGroupBy,
     ReportQuery,
@@ -36,6 +40,7 @@ from .models import (
     User,
     WeeklyUserSummary,
     Workspace,
+    WorkspaceRole,
 )
 from .repositories import TimeOpsStore
 
@@ -57,6 +62,7 @@ class TimeOpsService:
         self.time_entries = self.store.time_entries
         self.timesheet_periods = self.store.timesheet_periods
         self.audit_logs = self.store.audit_logs
+        self.favorite_projects_by_user = self.store.favorite_projects_by_user
         self.workspaces: dict[str, Workspace] = {}
         self.users: dict[str, User] = {}
         self.clients: dict[str, Client] = {}
@@ -75,6 +81,9 @@ class TimeOpsService:
         self.workspaces[workspace.id] = workspace
         return workspace
 
+    def add_user(self, workspace_id: str, name: str, email: str, *, default_cost_rate: Decimal = Decimal("0"), role: WorkspaceRole = WorkspaceRole.MEMBER) -> User:
+        self._require_workspace(workspace_id)
+        user = User(workspace_id=workspace_id, name=name, email=email, default_cost_rate=default_cost_rate, role=role)
     def add_user(self, workspace_id: str, name: str, email: str, *, default_cost_rate: Decimal = Decimal("0")) -> User:
         self._require_workspace(workspace_id)
         user = User(workspace_id=workspace_id, name=name, email=email, default_cost_rate=default_cost_rate)
@@ -98,12 +107,16 @@ class TimeOpsService:
         status: ProjectStatus = ProjectStatus.ACTIVE,
         access: ProjectAccess = ProjectAccess.PUBLIC,
         estimate_seconds: int | None = None,
+        budget_amount: Decimal | None = None,
+        template_name: str | None = None,
     ) -> Project:
         self._require_workspace(workspace_id)
         if client_id is not None:
             self._require_client(workspace_id, client_id)
         if estimate_seconds is not None and estimate_seconds < 0:
             raise ValueError("Project estimate cannot be negative")
+        if budget_amount is not None and budget_amount < 0:
+            raise ValueError("Project budget cannot be negative")
         project = Project(
             workspace_id=workspace_id,
             name=name,
@@ -113,6 +126,8 @@ class TimeOpsService:
             status=status,
             access=access,
             estimate_seconds=estimate_seconds,
+            budget_amount=budget_amount,
+            template_name=template_name,
         )
         self.projects[project.id] = project
         return project
@@ -147,6 +162,7 @@ class TimeOpsService:
         actor = actor_user_id or user_id
         started = started_at or datetime.now(UTC)
         self._validate_entry_context(workspace_id, user_id, actor, project_id, task_id, tag_ids)
+        self._ensure_can_manage_time_for(workspace_id, actor, user_id)
         self._require_aware_datetime(started, "started_at")
         self._ensure_no_running_entry(workspace_id, user_id)
         entry = TimeEntry(
@@ -201,6 +217,7 @@ class TimeOpsService:
     ) -> TimeEntry:
         actor = actor_user_id or user_id
         self._validate_entry_context(workspace_id, user_id, actor, project_id, task_id, tag_ids)
+        self._ensure_can_manage_time_for(workspace_id, actor, user_id)
         self._require_aware_datetime(start_at, "start_at")
         self._require_aware_datetime(end_at, "end_at")
         if end_at <= start_at:
@@ -331,6 +348,7 @@ class TimeOpsService:
     def approve_timesheet(self, period_id: str, *, actor_user_id: str, reason: str | None = None) -> TimesheetPeriod:
         period = self._require_period(period_id)
         self._require_user(period.workspace_id, actor_user_id)
+        self._ensure_role(period.workspace_id, actor_user_id, {WorkspaceRole.OWNER, WorkspaceRole.ADMIN, WorkspaceRole.MANAGER})
         if period.status != TimesheetStatus.SUBMITTED:
             raise ValueError("Only submitted timesheets can be approved")
         old_value = self._period_snapshot(period)
@@ -345,6 +363,7 @@ class TimeOpsService:
     def reject_timesheet(self, period_id: str, *, actor_user_id: str, reason: str) -> TimesheetPeriod:
         period = self._require_period(period_id)
         self._require_user(period.workspace_id, actor_user_id)
+        self._ensure_role(period.workspace_id, actor_user_id, {WorkspaceRole.OWNER, WorkspaceRole.ADMIN, WorkspaceRole.MANAGER})
         if period.status != TimesheetStatus.SUBMITTED:
             raise ValueError("Only submitted timesheets can be rejected")
         old_value = self._period_snapshot(period)
@@ -359,6 +378,7 @@ class TimeOpsService:
     def lock_timesheet(self, period_id: str, *, actor_user_id: str, reason: str) -> TimesheetPeriod:
         period = self._require_period(period_id)
         self._require_user(period.workspace_id, actor_user_id)
+        self._ensure_role(period.workspace_id, actor_user_id, {WorkspaceRole.OWNER, WorkspaceRole.ADMIN, WorkspaceRole.MANAGER})
         old_value = self._period_snapshot(period)
         period.status = TimesheetStatus.LOCKED
         period.locked_at = datetime.now(UTC)
@@ -370,6 +390,52 @@ class TimeOpsService:
 
     def assign_tags_to_entry(self, entry_id: str, *, actor_user_id: str, tag_ids: tuple[str, ...], reason: str) -> TimeEntry:
         return self.update_time_entry(entry_id, actor_user_id=actor_user_id, reason=reason, tag_ids=list(tag_ids))
+
+    def favorite_project(self, workspace_id: str, user_id: str, project_id: str) -> None:
+        self._require_user(workspace_id, user_id)
+        self._require_project(workspace_id, project_id)
+        self.favorite_projects_by_user.setdefault(user_id, set()).add(project_id)
+
+    def unfavorite_project(self, workspace_id: str, user_id: str, project_id: str) -> None:
+        self._require_user(workspace_id, user_id)
+        self._require_project(workspace_id, project_id)
+        self.favorite_projects_by_user.setdefault(user_id, set()).discard(project_id)
+
+    def list_projects(self, workspace_id: str, *, user_id: str | None = None, include_archived: bool = False, search: str | None = None) -> tuple[ProjectListItem, ...]:
+        self._require_workspace(workspace_id)
+        favorite_ids = set()
+        if user_id is not None:
+            self._require_user(workspace_id, user_id)
+            favorite_ids = self.favorite_projects_by_user.get(user_id, set())
+        search_text = search.casefold() if search else None
+        items = []
+        for project in self.projects.values():
+            if project.workspace_id != workspace_id:
+                continue
+            if not include_archived and project.status == ProjectStatus.ARCHIVED:
+                continue
+            if search_text and search_text not in project.name.casefold():
+                continue
+            tracked_seconds = sum(entry.duration_seconds for entry in self._completed_entries(workspace_id) if entry.project_id == project.id)
+            progress_percent = None
+            if project.estimate_seconds:
+                progress_percent = (Decimal(tracked_seconds) / Decimal(project.estimate_seconds) * Decimal(100)).quantize(Decimal("0.01"))
+            client = self.clients.get(project.client_id) if project.client_id else None
+            items.append(
+                ProjectListItem(
+                    id=project.id,
+                    name=project.name,
+                    client_name=client.name if client else None,
+                    color=project.color,
+                    status=project.status,
+                    access=project.access,
+                    tracked_seconds=tracked_seconds,
+                    estimate_seconds=project.estimate_seconds,
+                    progress_percent=progress_percent,
+                    is_favorite=project.id in favorite_ids,
+                )
+            )
+        return tuple(sorted(items, key=lambda item: item.name.casefold()))
 
     def weekly_summary(self, workspace_id: str, week_start: date) -> dict[str, int]:
         return {user_id: summary.total_seconds for user_id, summary in self.weekly_report(workspace_id, week_start).items()}
@@ -445,6 +511,55 @@ class TimeOpsService:
                 labor_cost=values["labor_cost"].quantize(Decimal("0.01")),
             )
             for group_key, values in sorted(buckets.items(), key=lambda item: item[1]["label"])
+        )
+
+    def report_detailed(self, query: ReportQuery) -> tuple[ReportDetailedRow, ...]:
+        self._validate_report_query(query)
+        rows = []
+        for entry in sorted(self._entries_for_query(query), key=lambda item: item.start_at):
+            project = self.projects.get(entry.project_id) if entry.project_id else None
+            client = self.clients.get(project.client_id) if project and project.client_id else None
+            task = self.tasks.get(entry.task_id) if entry.task_id else None
+            duration_seconds = self._effective_duration_seconds(entry)
+            rows.append(
+                ReportDetailedRow(
+                    entry_id=entry.id,
+                    user_name=self.users[entry.user_id].name,
+                    client_name=client.name if client else None,
+                    project_name=project.name if project else None,
+                    task_name=task.name if task else None,
+                    tag_names=tuple(self.tags[tag_id].name for tag_id in entry.tag_ids),
+                    description=entry.description,
+                    start_at=entry.start_at,
+                    end_at=entry.end_at,
+                    duration_seconds=duration_seconds,
+                    is_billable=entry.is_billable,
+                    revenue=(self._entry_revenue_for_seconds(entry, duration_seconds) if entry.is_billable else Decimal("0")).quantize(Decimal("0.01")),
+                    labor_cost=self._entry_labor_cost_for_seconds(entry, duration_seconds).quantize(Decimal("0.01")),
+                )
+            )
+        return tuple(rows)
+
+    def report_daily_buckets(self, query: ReportQuery) -> tuple[ReportChartBucket, ...]:
+        self._validate_report_query(query)
+        buckets: dict[date, dict[str, Decimal | int]] = defaultdict(lambda: {"total_seconds": 0, "billable_seconds": 0, "revenue": Decimal("0"), "labor_cost": Decimal("0")})
+        for entry in self._entries_for_query(query):
+            bucket = buckets[entry.start_at.date()]
+            duration_seconds = self._effective_duration_seconds(entry)
+            bucket["total_seconds"] += duration_seconds
+            bucket["labor_cost"] += self._entry_labor_cost_for_seconds(entry, duration_seconds)
+            if entry.is_billable:
+                bucket["billable_seconds"] += duration_seconds
+                bucket["revenue"] += self._entry_revenue_for_seconds(entry, duration_seconds)
+        return tuple(
+            ReportChartBucket(
+                day=day,
+                total_seconds=int(values["total_seconds"]),
+                billable_seconds=int(values["billable_seconds"]),
+                revenue=values["revenue"].quantize(Decimal("0.01")),
+                labor_cost=values["labor_cost"].quantize(Decimal("0.01")),
+            )
+            for day, values in sorted(buckets.items())
         )
 
     def time_tracker_week(self, workspace_id: str, user_id: str, week_start: date) -> TimeTrackerWeek:
@@ -571,6 +686,16 @@ class TimeOpsService:
             raise ValueError("A reason is required for auditable time entry changes")
         if entry.approval_status in LOCKED_ENTRY_STATUSES or entry.locked_at is not None:
             raise ValueError("Submitted, approved, or locked time entries cannot be edited")
+
+    def _ensure_role(self, workspace_id: str, user_id: str, allowed_roles: set[WorkspaceRole]) -> None:
+        user = self._require_user(workspace_id, user_id)
+        if user.role not in allowed_roles:
+            raise PermissionError("User does not have permission for this action")
+
+    def _ensure_can_manage_time_for(self, workspace_id: str, actor_user_id: str, target_user_id: str) -> None:
+        if actor_user_id == target_user_id:
+            return
+        self._ensure_role(workspace_id, actor_user_id, {WorkspaceRole.OWNER, WorkspaceRole.ADMIN, WorkspaceRole.MANAGER})
 
     def _require_workspace(self, workspace_id: str) -> Workspace:
         if workspace_id not in self.workspaces:

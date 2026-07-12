@@ -22,3 +22,4 @@ class TimeOpsStore(Protocol):
     time_entries: dict[str, TimeEntry]
     timesheet_periods: dict[str, TimesheetPeriod]
     audit_logs: list[AuditLog]
+    favorite_projects_by_user: dict[str, set[str]]

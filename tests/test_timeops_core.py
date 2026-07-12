@@ -2,6 +2,7 @@ from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 from unittest import TestCase
 
+from apps.api.timeops_core import ProjectAccess, ProjectStatus, ReportGroupBy, ReportQuery, TimeOpsService, WorkspaceRole
 from apps.api.timeops_core import ProjectAccess, ProjectStatus, ReportGroupBy, ReportQuery, TimeOpsService
 from apps.api.timeops_core.in_memory import InMemoryTimeOpsStore
 
@@ -11,6 +12,7 @@ class TimeOpsServiceTest(TestCase):
         self.service = TimeOpsService()
         self.workspace = self.service.create_workspace("Solo Ops", default_billable_rate=Decimal("25"))
         self.user = self.service.add_user(self.workspace.id, "Ava", "ava@example.test", default_cost_rate=Decimal("10"))
+        self.manager = self.service.add_user(self.workspace.id, "Mina", "mina@example.test", default_cost_rate=Decimal("20"), role=WorkspaceRole.MANAGER)
         self.manager = self.service.add_user(self.workspace.id, "Mina", "mina@example.test", default_cost_rate=Decimal("20"))
         self.client = self.service.add_client(self.workspace.id, "Example Client")
         self.project = self.service.add_project(self.workspace.id, "Moderation", client_id=self.client.id, billable_rate=Decimal("40"))
@@ -306,3 +308,97 @@ class TimeOpsServiceTest(TestCase):
         self.assertIn(workspace.id, reader.workspaces)
         self.assertIn(user.id, reader.users)
         self.assertIs(reader.audit_logs, store.audit_logs)
+
+
+    def test_manager_permissions_gate_approvals_and_add_time_for_others(self):
+        member = self.service.add_user(self.workspace.id, "Member", "member@example.test")
+        entry = self.service.add_manual_entry(
+            self.workspace.id,
+            self.user.id,
+            description="Approval permissions",
+            start_at=datetime(2026, 6, 24, 8, tzinfo=UTC),
+            end_at=datetime(2026, 6, 24, 9, tzinfo=UTC),
+        )
+        period = self.service.submit_timesheet(self.workspace.id, self.user.id, period_start=date(2026, 6, 22))
+
+        with self.assertRaises(PermissionError):
+            self.service.approve_timesheet(period.id, actor_user_id=member.id, reason="Not allowed")
+        with self.assertRaises(PermissionError):
+            self.service.add_manual_entry(
+                self.workspace.id,
+                self.user.id,
+                actor_user_id=member.id,
+                description="Bad manager add",
+                start_at=datetime(2026, 6, 24, 10, tzinfo=UTC),
+                end_at=datetime(2026, 6, 24, 11, tzinfo=UTC),
+            )
+
+        approved = self.service.approve_timesheet(period.id, actor_user_id=self.manager.id, reason="Allowed")
+
+        self.assertEqual(approved.status.value, "approved")
+        self.assertEqual(entry.approval_status.value, "approved")
+
+    def test_project_list_progress_favorites_and_archived_filtering(self):
+        active = self.service.add_project(
+            self.workspace.id,
+            "Active Project",
+            client_id=self.client.id,
+            estimate_seconds=7200,
+            budget_amount=Decimal("500"),
+            template_name="Support Template",
+        )
+        archived = self.service.add_project(self.workspace.id, "Archived Project", status=ProjectStatus.ARCHIVED)
+        self.service.favorite_project(self.workspace.id, self.user.id, active.id)
+        self.service.add_manual_entry(
+            self.workspace.id,
+            self.user.id,
+            description="Progress work",
+            start_at=datetime(2026, 6, 25, 8, tzinfo=UTC),
+            end_at=datetime(2026, 6, 25, 9, tzinfo=UTC),
+            project_id=active.id,
+        )
+
+        projects = self.service.list_projects(self.workspace.id, user_id=self.user.id, search="active")
+        all_projects = self.service.list_projects(self.workspace.id, include_archived=True)
+
+        self.assertEqual(len(projects), 1)
+        self.assertEqual(projects[0].name, "Active Project")
+        self.assertEqual(projects[0].tracked_seconds, 3600)
+        self.assertEqual(projects[0].progress_percent, Decimal("50.00"))
+        self.assertTrue(projects[0].is_favorite)
+        self.assertIn(archived.id, {project.id for project in all_projects})
+        self.assertEqual(active.budget_amount, Decimal("500"))
+        self.assertEqual(active.template_name, "Support Template")
+
+    def test_detailed_report_rows_and_daily_chart_buckets(self):
+        tag = self.service.add_tag(self.workspace.id, "Chart")
+        self.service.add_manual_entry(
+            self.workspace.id,
+            self.user.id,
+            description="Detailed one",
+            start_at=datetime(2026, 6, 26, 8, tzinfo=UTC),
+            end_at=datetime(2026, 6, 26, 10, tzinfo=UTC),
+            project_id=self.project.id,
+            task_id=self.task.id,
+            tag_ids=(tag.id,),
+            is_billable=True,
+        )
+        query = ReportQuery(
+            workspace_id=self.workspace.id,
+            start_at=datetime(2026, 6, 26, tzinfo=UTC),
+            end_at=datetime(2026, 6, 27, tzinfo=UTC),
+        )
+
+        rows = self.service.report_detailed(query)
+        buckets = self.service.report_daily_buckets(query)
+
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0].user_name, "Ava")
+        self.assertEqual(rows[0].project_name, "Moderation")
+        self.assertEqual(rows[0].task_name, "Queue Review")
+        self.assertEqual(rows[0].tag_names, ("Chart",))
+        self.assertEqual(rows[0].revenue, Decimal("100.00"))
+        self.assertEqual(rows[0].labor_cost, Decimal("20.00"))
+        self.assertEqual(buckets[0].day, date(2026, 6, 26))
+        self.assertEqual(buckets[0].total_seconds, 7200)
+        self.assertEqual(buckets[0].revenue, Decimal("100.00"))

@@ -45,15 +45,15 @@ def create_app(service: TimeOpsService | None = None) -> FastAPI:
 
     @app.post("/users")
     def create_user(payload: CreateUserRequest) -> object:
-        return serialize(timeops.add_user(payload.workspace_id, payload.name, payload.email, default_cost_rate=payload.default_cost_rate))
+        return serialize(timeops.add_user(payload.workspace_id, payload.name, payload.email, default_cost_rate=payload.default_cost_rate, role=payload.role))
 
     @app.post("/clients")
     def create_client(payload: CreateClientRequest) -> object:
         return serialize(timeops.add_client(payload.workspace_id, payload.name))
 
     @app.get("/projects")
-    def list_projects(workspace_id: str) -> object:
-        return serialize([project for project in timeops.projects.values() if project.workspace_id == workspace_id])
+    def list_projects(workspace_id: str, user_id: str | None = None, include_archived: bool = False, search: str | None = None) -> object:
+        return serialize(timeops.list_projects(workspace_id, user_id=user_id, include_archived=include_archived, search=search))
 
     @app.post("/projects")
     def create_project(payload: CreateProjectRequest) -> object:
@@ -67,6 +67,8 @@ def create_app(service: TimeOpsService | None = None) -> FastAPI:
                 status=payload.status,
                 access=payload.access,
                 estimate_seconds=payload.estimate_seconds,
+                budget_amount=payload.budget_amount,
+                template_name=payload.template_name,
             )
         )
 
@@ -132,6 +134,16 @@ def create_app(service: TimeOpsService | None = None) -> FastAPI:
     def report_summary(payload: ReportSummaryRequest) -> object:
         query = ReportQuery(**payload.model_dump())
         return serialize(timeops.report_summary(query))
+
+    @app.post("/reports/detailed")
+    def report_detailed(payload: ReportSummaryRequest) -> object:
+        query = ReportQuery(**payload.model_dump())
+        return serialize(timeops.report_detailed(query))
+
+    @app.post("/reports/daily-buckets")
+    def report_daily_buckets(payload: ReportSummaryRequest) -> object:
+        query = ReportQuery(**payload.model_dump())
+        return serialize(timeops.report_daily_buckets(query))
 
     return app
 

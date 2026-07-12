@@ -7,8 +7,7 @@ Clockinator is a self-hosted time operations starter system for individuals and 
 This repository currently implements the Phase 1 domain core:
 
 - single-workspace bootstrap
-- users, clients, projects, and tasks
-- tags on time entries
+- users, clients, projects, tasks, and tags
 - auditable timer start/stop
 - manual time entries
 - billable rate snapshots
@@ -19,9 +18,7 @@ This repository currently implements the Phase 1 domain core:
 - timezone-aware entry validation
 - timesheet submit/approve/reject/lock state transitions
 - repository/store boundary and FastAPI route skeleton
-- monthly income summaries
-- CSV export for reports
-
+- role-gated manager actions, project progress/favorites, and detailed report/chart DTOs
 
 The code is intentionally framework-light so the domain rules can be tested before adding web, worker, desktop, kiosk, or mobile shells.
 
@@ -30,7 +27,6 @@ The code is intentionally framework-light so the domain rules can be tested befo
 ```txt
 apps/api/timeops_core/  # Python domain package for the API service
 apps/api/timeops_api/   # FastAPI route and schema skeleton
-design/                 # UI mockups (Design Canvas) and reference screenshots
 infra/docker/           # Container/deployment notes and compose starter
 tests/                  # Unit tests for the Phase 1 domain core
 ```
@@ -46,7 +42,6 @@ uvicorn apps.api.main:app --reload
 
 - [Clockify screenshot gap analysis](docs/clockify-image-gap-analysis.md) tracks what is visible in the reference screenshots and what Clockinator still needs to implement.
 
-
 ## Roadmap
 
 1. Timer and manual entry
@@ -60,4 +55,3 @@ uvicorn apps.api.main:app --reload
 9. Kiosk
 10. GPS/screenshots with privacy controls
 11. SSO, SCIM, webhooks, and enterprise administration
-

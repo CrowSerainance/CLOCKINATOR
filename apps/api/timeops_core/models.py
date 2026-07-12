@@ -2,8 +2,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import UTC, date, datetime
-from datetime import UTC, date, datetime
-
 from decimal import Decimal
 from enum import StrEnum
 from uuid import uuid4
@@ -57,6 +55,13 @@ class ReportGroupBy(StrEnum):
     DAY = "day"
 
 
+class WorkspaceRole(StrEnum):
+    OWNER = "owner"
+    ADMIN = "admin"
+    MANAGER = "manager"
+    MEMBER = "member"
+
+
 @dataclass(frozen=True)
 class Workspace:
     name: str
@@ -72,6 +77,7 @@ class User:
     name: str
     email: str
     default_cost_rate: Decimal = Decimal("0")
+    role: WorkspaceRole = WorkspaceRole.MEMBER
     id: str = field(default_factory=new_id)
 
 
@@ -92,6 +98,8 @@ class Project:
     status: ProjectStatus = ProjectStatus.ACTIVE
     access: ProjectAccess = ProjectAccess.PUBLIC
     estimate_seconds: int | None = None
+    budget_amount: Decimal | None = None
+    template_name: str | None = None
     id: str = field(default_factory=new_id)
 
 
@@ -109,7 +117,6 @@ class Tag:
     workspace_id: str
     name: str
     color: str = "#38bdf8"
-    color: str = "#38bdf8"
     id: str = field(default_factory=new_id)
 
 
@@ -125,16 +132,12 @@ class TimeEntry:
     project_id: str | None = None
     task_id: str | None = None
     tag_ids: list[str] = field(default_factory=list)
-    tag_ids: list[str] = field(default_factory=list)
     is_billable: bool = False
     billable_rate_snapshot: Decimal = Decimal("0")
     cost_rate_snapshot: Decimal = Decimal("0")
     source: TimeEntrySource = TimeEntrySource.WEB
     approval_status: ApprovalStatus = ApprovalStatus.DRAFT
     timezone: str = "UTC"
-    id: str = field(default_factory=new_id)
-    deleted_at: datetime | None = None
-    locked_at: datetime | None = None
     id: str = field(default_factory=new_id)
     deleted_at: datetime | None = None
     locked_at: datetime | None = None
@@ -165,6 +168,7 @@ class TimesheetPeriod:
     decision_reason: str | None = None
     locked_at: datetime | None = None
     id: str = field(default_factory=new_id)
+
 
 @dataclass(frozen=True)
 class AuditLog:
@@ -224,6 +228,46 @@ class ReportSummaryRow:
     billable_seconds: int
     revenue: Decimal
     labor_cost: Decimal
+
+
+@dataclass(frozen=True)
+class ReportDetailedRow:
+    entry_id: str
+    user_name: str
+    client_name: str | None
+    project_name: str | None
+    task_name: str | None
+    tag_names: tuple[str, ...]
+    description: str
+    start_at: datetime
+    end_at: datetime | None
+    duration_seconds: int
+    is_billable: bool
+    revenue: Decimal
+    labor_cost: Decimal
+
+
+@dataclass(frozen=True)
+class ReportChartBucket:
+    day: date
+    total_seconds: int
+    billable_seconds: int
+    revenue: Decimal
+    labor_cost: Decimal
+
+
+@dataclass(frozen=True)
+class ProjectListItem:
+    id: str
+    name: str
+    client_name: str | None
+    color: str
+    status: ProjectStatus
+    access: ProjectAccess
+    tracked_seconds: int
+    estimate_seconds: int | None
+    progress_percent: Decimal | None
+    is_favorite: bool
 
 
 @dataclass(frozen=True)
