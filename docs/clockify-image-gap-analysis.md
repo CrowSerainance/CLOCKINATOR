@@ -142,6 +142,12 @@ The current Phase 1 domain core covers only part of the screenshots:
 | Time tracker | Start/stop/manual entries, tags, and a tracker-week DTO exist | No web timer bar, continue action, favorites, required fields, breaks, or row menus |
 | Calendar | Calendar-week DTOs exist for event projection | Need real week/day UI grid, date navigation, teammate selector UI, positioned layout, drag/drop edits, and settings |
 | Reports | Weekly/monthly calculations, CSV export, report query objects, filters, summary grouping, detailed rows, and daily chart buckets exist | Need summary/detailed/weekly/shared UI, sorting, rounding, estimates, share links, print/PDF/XLSX, and invoice handoff |
+| Users/team | Users exist in the domain | No invitations, roles, manager permissions, teams, or member UI |
+| Clients | Clients exist in the domain | No client CRUD UI, archived status, contact/billing metadata, or filters beyond direct IDs |
+| Projects | Projects/tasks exist with billable rates, color, status, access, and estimate metadata | No project list UI, favorites, progress calculations, templates, budgets, or row actions |
+| Time tracker | Start/stop/manual entries, tags, and a tracker-week DTO exist | No web timer bar, continue action, favorites, required fields, breaks, or row menus |
+| Calendar | Calendar-week DTOs exist for event projection | Need real week/day UI grid, date navigation, teammate selector UI, positioned layout, drag/drop edits, and settings |
+| Reports | Weekly/monthly calculations, CSV export, report query objects, filters, and summary grouping exist | Need summary/detailed/weekly/shared UI, sorting, charts, rounding, estimates, share links, print/PDF/XLSX, and invoice handoff |
 | Timesheets | Submit/approve/reject/lock exists | Need period listing, withdrawal, manager queues, comments, reminders, attendance/overtime report, and UI |
 | Audit | Old/new audit snapshots exist | Need append-only persistence, audit search/export, IP/user agent, actor role, override reasons, and admin audit UI |
 | Billing | Billable rates and revenue exist | Need invoices, recurring invoices, invoice PDFs, expenses, tax, payments, multiple currencies, and accounting integrations |
@@ -195,3 +201,12 @@ These are the smallest useful code changes that should come before building the 
 - Add persisted project member access rules, row actions, and archived-list API filters.
 - Add shared report links, rounding, estimate overlays, and PDF/XLSX export adapters.
 - Harden HTTP API schemas/routes with response models, error mapping, auth dependencies, and API tests.
+- Add permission checks for manager actions, including add-time-for-others and approve/lock timesheets.
+- Add project progress calculations, favorites, templates, budgets, and archived-list filtering.
+- Add detailed report rows, shared report links, rounding, chart-ready buckets, and PDF/XLSX export adapters.
+- Harden HTTP API schemas/routes with response models, error mapping, auth dependencies, and API tests.
+- Add repository interfaces so the domain can move from in-memory storage to PostgreSQL without rewriting business rules.
+- Add permission checks for manager actions, including add-time-for-others and approve/lock timesheets.
+- Add project progress calculations, favorites, templates, budgets, and archived-list filtering.
+- Add detailed report rows, shared report links, rounding, chart-ready buckets, and PDF/XLSX export adapters.
+- Add HTTP API schemas/routes for the tracker week, calendar week, project list, and report summary DTOs.

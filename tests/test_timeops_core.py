@@ -3,6 +3,7 @@ from decimal import Decimal
 from unittest import TestCase
 
 from apps.api.timeops_core import ProjectAccess, ProjectStatus, ReportGroupBy, ReportQuery, TimeOpsService, WorkspaceRole
+from apps.api.timeops_core import ProjectAccess, ProjectStatus, ReportGroupBy, ReportQuery, TimeOpsService
 from apps.api.timeops_core.in_memory import InMemoryTimeOpsStore
 
 
@@ -12,6 +13,7 @@ class TimeOpsServiceTest(TestCase):
         self.workspace = self.service.create_workspace("Solo Ops", default_billable_rate=Decimal("25"))
         self.user = self.service.add_user(self.workspace.id, "Ava", "ava@example.test", default_cost_rate=Decimal("10"))
         self.manager = self.service.add_user(self.workspace.id, "Mina", "mina@example.test", default_cost_rate=Decimal("20"), role=WorkspaceRole.MANAGER)
+        self.manager = self.service.add_user(self.workspace.id, "Mina", "mina@example.test", default_cost_rate=Decimal("20"))
         self.client = self.service.add_client(self.workspace.id, "Example Client")
         self.project = self.service.add_project(self.workspace.id, "Moderation", client_id=self.client.id, billable_rate=Decimal("40"))
         self.task = self.service.add_task(self.workspace.id, self.project.id, "Queue Review", billable_rate=Decimal("50"))
