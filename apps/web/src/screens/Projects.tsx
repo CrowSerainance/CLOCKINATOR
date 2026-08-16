@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { theme } from "../theme";
-import { projects as seed } from "../data/sample";
+import { useStore, useStoreRevision } from "../hooks/useClockinator";
 import type { ProjectRow } from "../types";
 
 const COLS = "minmax(220px,2fr) 1.2fr 0.8fr 1.4fr 0.7fr 0.8fr 44px";
@@ -84,13 +84,12 @@ function Row({ project, onToggleFavorite }: { project: ProjectRow; onToggleFavor
 }
 
 export function Projects() {
-  const [rows, setRows] = useState<ProjectRow[]>(seed);
+  const store = useStore();
+  useStoreRevision();
+  const rows = store.listProjects();
   const [filter, setFilter] = useState<"all" | "favorites">("all");
 
   const visible = filter === "favorites" ? rows.filter((r) => r.favorite) : rows;
-
-  const toggleFavorite = (name: string) =>
-    setRows((prev) => prev.map((r) => (r.name === name ? { ...r, favorite: !r.favorite } : r)));
 
   const chip = (key: "all" | "favorites", label: string) => (
     <button
@@ -118,6 +117,10 @@ export function Projects() {
           {chip("favorites", "★ Favorites")}
         </div>
         <button
+          onClick={() => {
+            const name = window.prompt("Project name");
+            if (name?.trim()) store.createProject(name.trim());
+          }}
           style={{ background: theme.accent, color: theme.accentInk, border: "none", borderRadius: 10, padding: "10px 18px", fontWeight: 700, fontSize: 13, cursor: "pointer" }}
         >
           + New project
@@ -127,7 +130,13 @@ export function Projects() {
       <div style={{ background: theme.surface, border: `1px solid ${theme.border}`, borderRadius: 14, overflow: "hidden" }}>
         <Header />
         {visible.map((p) => (
-          <Row key={p.name} project={p} onToggleFavorite={() => toggleFavorite(p.name)} />
+          <Row
+            key={p.id ?? p.name}
+            project={p}
+            onToggleFavorite={() => {
+              if (p.id) store.setProjectFavorite(p.id, !p.favorite);
+            }}
+          />
         ))}
         {visible.length === 0 && (
           <div style={{ padding: "28px 18px", textAlign: "center", color: theme.textMuted, fontSize: 13 }}>No favorite projects yet.</div>

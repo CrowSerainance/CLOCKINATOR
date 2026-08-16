@@ -7,6 +7,7 @@ export type Screen =
   | "audit";
 
 export interface TimeEntry {
+  id?: string;
   desc: string;
   project: string;
   color: string;
@@ -21,6 +22,7 @@ export interface TimeEntry {
 export interface DayGroup {
   label: string;
   total: string;
+  dayKey?: string;
   entries: TimeEntry[];
 }
 
@@ -28,6 +30,7 @@ export type ProjectAccess = "public" | "private";
 export type ProjectStatus = "Active" | "On hold" | "Non-billable";
 
 export interface ProjectRow {
+  id?: string;
   name: string;
   color: string;
   client: string;

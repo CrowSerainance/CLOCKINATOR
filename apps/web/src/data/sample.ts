@@ -1,6 +1,6 @@
 import type { DayGroup, ProjectRow } from "../types";
 
-// Sample data mirroring the design mockup. Swap for the real API later.
+// Legacy mockup fixtures. The running app seeds SQLite in src/db/seed.ts — do not wire screens to this file.
 export const dayGroups: DayGroup[] = [
   {
     label: "Today",

@@ -2,9 +2,11 @@ import { useState } from "react";
 import { Sidebar } from "./components/Sidebar";
 import { TimeTracker } from "./screens/TimeTracker";
 import { Projects } from "./screens/Projects";
+import { Reports } from "./screens/Reports";
 import { Placeholder } from "./screens/Placeholder";
 import type { Screen } from "./types";
 import { theme } from "./theme";
+import { useStore } from "./hooks/useClockinator";
 
 const TITLES: Record<Screen, string> = {
   tracker: "Time Tracker",
@@ -17,6 +19,7 @@ const TITLES: Record<Screen, string> = {
 
 export function App() {
   const [screen, setScreen] = useState<Screen>("tracker");
+  const store = useStore();
 
   return (
     <div style={{ display: "flex", height: "100vh", width: "100%", overflow: "hidden" }}>
@@ -33,13 +36,15 @@ export function App() {
             flexShrink: 0,
           }}
         >
-          <span style={{ fontSize: 14, fontWeight: 700 }}>Northwind Studio</span>
+          <span style={{ fontSize: 14, fontWeight: 700 }}>{store.workspaceName}</span>
           <span style={{ fontSize: 13, color: theme.textFaint }}>/ {TITLES[screen]}</span>
         </header>
         {screen === "tracker" ? (
           <TimeTracker />
         ) : screen === "projects" ? (
           <Projects />
+        ) : screen === "reports" ? (
+          <Reports />
         ) : (
           <Placeholder title={TITLES[screen]} />
         )}
