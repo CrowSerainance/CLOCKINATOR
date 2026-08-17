@@ -72,4 +72,12 @@ describe("timer engine", () => {
     store.finishBreak();
     expect(store.getOpenSession()?.status).toBe("running");
   });
+
+  it("seeds enough weekday history that the tracker is not a single row", async () => {
+    const store = await makeStore();
+    const at = new Date("2026-08-17T12:00:00");
+    const week = store.listWeekGroups(at);
+    expect(week.groups.length).toBeGreaterThan(4);
+    expect(week.groups.some((g) => g.entries.length > 1)).toBe(true);
+  });
 });

@@ -12,8 +12,17 @@ import {
   type OpenSession,
   type StartTimerInput,
 } from "../domain/timer";
-import type { DayGroup, ProjectRow } from "../types";
-import { addDays, dayLabel, formatClock, formatDuration, localDayKey, startOfLocalWeek } from "../domain/duration";
+import type { ApprovalRow, AuditRow, DayGroup, ProjectRow, ReportDay, TagOption, TimesheetGrid } from "../types";
+import {
+  addDays,
+  dayLabel,
+  durationSeconds,
+  formatClock,
+  formatDuration,
+  localDayKey,
+  startOfLocalDay,
+  startOfLocalWeek,
+} from "../domain/duration";
 import { formatRate } from "../domain/money";
 import { savePersistedDb } from "./persist";
 import { seedIfEmpty } from "./seed";
@@ -296,20 +305,82 @@ export class ClockinatorStore implements TimerEngineDb {
     }));
   }
 
+  listTags(): TagOption[] {
+    return this.all<{ id: string; name: string; color: string | null }>(
+      `SELECT id, name, color FROM tags WHERE workspace_id = ? ORDER BY name COLLATE NOCASE`,
+      [this.workspaceId],
+    ).map((row) => ({ id: row.id, name: row.name, color: row.color ?? "#7d776e" }));
+  }
+
+  listClients(): Array<{ id: string; name: string }> {
+    return this.all<{ id: string; name: string }>(
+      `SELECT id, name FROM clients WHERE workspace_id = ? AND archived = 0 ORDER BY name COLLATE NOCASE`,
+      [this.workspaceId],
+    );
+  }
+
+  createManualEntry(input: {
+    description: string;
+    projectId: string | null;
+    tagIds: string[];
+    isBillable: boolean;
+    start: Date;
+    end: Date;
+  }): void {
+    const start = input.start;
+    const end = input.end;
+    if (end.getTime() <= start.getTime()) throw new Error("End time must be after start time");
+    const startIso = start.toISOString();
+    const endIso = end.toISOString();
+    const duration = durationSeconds(startIso, endIso);
+    const billableRate = input.isBillable ? this.resolveBillableRate(input.projectId, null, start) : "0";
+    const costRate = this.resolveCostRate(start);
+    const id = this.newId();
+    this.run(
+      `INSERT INTO time_entries (
+         id, workspace_id, user_id, created_by_user_id, session_id, parent_entry_id, project_id, task_id,
+         kind, source, description, start_at, end_at, duration_seconds, is_billable, billable_rate_snapshot,
+         cost_rate_snapshot, approval_status, timezone, deleted_at, created_at
+       ) VALUES (?, ?, ?, ?, NULL, NULL, ?, NULL, 'work', 'web', ?, ?, ?, ?, ?, ?, ?, 'draft', 'UTC', NULL, ?)`,
+      [
+        id,
+        this.workspaceId,
+        this.userId,
+        this.userId,
+        input.projectId,
+        input.description.trim() || "No description",
+        startIso,
+        endIso,
+        duration,
+        input.isBillable ? 1 : 0,
+        billableRate,
+        costRate,
+        startIso,
+      ],
+    );
+    for (const tagId of input.tagIds) {
+      this.run(`INSERT INTO time_entry_tags (time_entry_id, tag_id) VALUES (?, ?)`, [id, tagId]);
+    }
+    this.audit("time_entry.created", "time_entry", id, { source: "manual" });
+    this.touch();
+  }
+
   listWeekGroups(at = this.now()): { groups: DayGroup[]; weekTotal: string } {
+    const from = addDays(startOfLocalDay(at), -13);
+    const to = addDays(startOfLocalDay(at), 1);
     const weekStart = startOfLocalWeek(at);
     const weekEnd = addDays(weekStart, 7);
-    const rows = this.all<EntryListRow>(
+    const rows = this.all<EntryListRow & { tags: string | null; approval_status: string }>(
       `SELECT e.id, e.kind, e.description, p.name AS project_name, c.name AS client_name, p.color AS project_color,
-              (SELECT t.name FROM time_entry_tags et JOIN tags t ON t.id = et.tag_id WHERE et.time_entry_id = e.id LIMIT 1) AS tag_name,
-              e.start_at, e.end_at, e.duration_seconds, e.is_billable, e.project_id, e.task_id
+              (SELECT GROUP_CONCAT(t.name, ', ') FROM time_entry_tags et JOIN tags t ON t.id = et.tag_id WHERE et.time_entry_id = e.id) AS tags,
+              e.start_at, e.end_at, e.duration_seconds, e.is_billable, e.project_id, e.task_id, e.approval_status
        FROM time_entries e
        LEFT JOIN projects p ON p.id = e.project_id
        LEFT JOIN clients c ON c.id = p.client_id
        WHERE e.workspace_id = ? AND e.user_id = ? AND e.deleted_at IS NULL AND e.kind = 'work' AND e.end_at IS NOT NULL
          AND e.start_at >= ? AND e.start_at < ?
        ORDER BY e.start_at DESC`,
-      [this.workspaceId, this.userId, weekStart.toISOString(), weekEnd.toISOString()],
+      [this.workspaceId, this.userId, from.toISOString(), to.toISOString()],
     );
 
     const todayKey = localDayKey(at.toISOString());
@@ -322,18 +393,25 @@ export class ClockinatorStore implements TimerEngineDb {
         byDay.set(key, { label: dayLabel(key, todayKey, yesterdayKey), total: "", entries: [], dayKey: key });
       }
       const duration = Number(row.duration_seconds);
-      weekSeconds += duration;
+      const startMs = Date.parse(row.start_at);
+      if (startMs >= weekStart.getTime() && startMs < weekEnd.getTime()) weekSeconds += duration;
+      const tags = (row.tags ?? "")
+        .split(",")
+        .map((t) => t.trim())
+        .filter(Boolean);
       byDay.get(key)!.entries.push({
         id: row.id,
         desc: row.description || "(no description)",
         project: row.project_name ?? "No project",
         color: row.project_color ?? "#7d776e",
         client: row.client_name ?? "",
-        tag: row.tag_name ?? undefined,
+        tag: tags[0],
+        tags,
         start: formatClock(row.start_at),
         end: row.end_at ? formatClock(row.end_at) : "…",
         dur: formatDuration(duration),
         billable: row.is_billable === 1,
+        approval: row.approval_status,
       });
     }
     const groups = [...byDay.values()].map((g) => ({
@@ -343,16 +421,132 @@ export class ClockinatorStore implements TimerEngineDb {
     return { groups, weekTotal: formatDuration(weekSeconds) };
   }
 
+  timesheetWeek(at = this.now()): TimesheetGrid {
+    const weekStart = startOfLocalWeek(at);
+    const days = Array.from({ length: 7 }, (_, i) => {
+      const day = addDays(weekStart, i);
+      const key = localDayKey(day.toISOString());
+      return {
+        key,
+        label: day.toLocaleDateString(undefined, { weekday: "short", day: "numeric" }),
+        totalSeconds: 0,
+      };
+    });
+    const rows = this.all<{ project: string | null; color: string | null; start_at: string; duration_seconds: number }>(
+      `SELECT p.name AS project, p.color, e.start_at, e.duration_seconds
+       FROM time_entries e
+       LEFT JOIN projects p ON p.id = e.project_id
+       WHERE e.workspace_id = ? AND e.user_id = ? AND e.deleted_at IS NULL AND e.kind = 'work' AND e.end_at IS NOT NULL
+         AND e.start_at >= ? AND e.start_at < ?`,
+      [this.workspaceId, this.userId, weekStart.toISOString(), addDays(weekStart, 7).toISOString()],
+    );
+    const byProject = new Map<string, TimesheetGrid["rows"][number]>();
+    for (const row of rows) {
+      const title = row.project ?? "No project";
+      if (!byProject.has(title)) {
+        byProject.set(title, {
+          project: title,
+          color: row.color ?? "#7d776e",
+          cells: days.map(() => ({ seconds: 0, label: "—" })),
+          totalSeconds: 0,
+        });
+      }
+      const key = localDayKey(row.start_at);
+      const dayIndex = days.findIndex((d) => d.key === key);
+      if (dayIndex < 0) continue;
+      const seconds = Number(row.duration_seconds);
+      const projectRow = byProject.get(title)!;
+      projectRow.cells[dayIndex].seconds += seconds;
+      projectRow.totalSeconds += seconds;
+      days[dayIndex].totalSeconds += seconds;
+    }
+    for (const projectRow of byProject.values()) {
+      projectRow.cells = projectRow.cells.map((cell) => ({
+        ...cell,
+        label: cell.seconds ? formatDuration(cell.seconds) : "—",
+      }));
+    }
+    return {
+      days,
+      rows: [...byProject.values()].sort((a, b) => b.totalSeconds - a.totalSeconds),
+      weekTotal: days.reduce((sum, d) => sum + d.totalSeconds, 0),
+    };
+  }
+
+  setApprovalStatus(entryId: string, status: "draft" | "submitted" | "approved" | "rejected"): void {
+    this.run(`UPDATE time_entries SET approval_status = ? WHERE id = ?`, [status, entryId]);
+    this.audit(`time_entry.${status}`, "time_entry", entryId);
+    this.touch();
+  }
+
+  listApprovals(): ApprovalRow[] {
+    const todayKey = localDayKey(this.now().toISOString());
+    const yesterdayKey = localDayKey(addDays(this.now(), -1).toISOString());
+    return this.all<{
+      id: string;
+      description: string;
+      project: string | null;
+      color: string | null;
+      start_at: string;
+      duration_seconds: number;
+      approval_status: string;
+    }>(
+      `SELECT e.id, e.description, p.name AS project, p.color, e.start_at, e.duration_seconds, e.approval_status
+       FROM time_entries e
+       LEFT JOIN projects p ON p.id = e.project_id
+       WHERE e.workspace_id = ? AND e.deleted_at IS NULL AND e.kind = 'work' AND e.end_at IS NOT NULL
+       ORDER BY CASE e.approval_status WHEN 'submitted' THEN 0 WHEN 'draft' THEN 1 WHEN 'rejected' THEN 2 ELSE 3 END, e.start_at DESC
+       LIMIT 80`,
+      [this.workspaceId],
+    ).map((row) => ({
+      id: row.id,
+      desc: row.description || "(no description)",
+      project: row.project ?? "No project",
+      color: row.color ?? "#7d776e",
+      day: dayLabel(localDayKey(row.start_at), todayKey, yesterdayKey),
+      dur: formatDuration(Number(row.duration_seconds)),
+      status: row.approval_status,
+    }));
+  }
+
+  listAudit(): AuditRow[] {
+    return this.all<{
+      id: string;
+      action: string;
+      target_type: string;
+      target_id: string;
+      actor: string | null;
+      created_at: string;
+    }>(
+      `SELECT a.id, a.action, a.target_type, a.target_id, u.name AS actor, a.created_at
+       FROM audit_logs a
+       LEFT JOIN users u ON u.id = a.actor_user_id
+       WHERE a.workspace_id = ?
+       ORDER BY a.created_at DESC
+       LIMIT 80`,
+      [this.workspaceId],
+    ).map((row) => ({
+      id: row.id,
+      action: row.action,
+      targetType: row.target_type,
+      targetId: row.target_id,
+      actor: row.actor ?? "System",
+      createdAt: new Date(row.created_at).toLocaleString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }),
+    }));
+  }
+
   report(fromIso: string, toIso: string) {
     const rows = this.all<{
       project_name: string | null;
+      project_color: string | null;
       description: string;
       duration_seconds: number;
       is_billable: number;
       billable_rate_snapshot: string;
       kind: string;
+      start_at: string;
     }>(
-      `SELECT p.name AS project_name, e.description, e.duration_seconds, e.is_billable, e.billable_rate_snapshot, e.kind
+      `SELECT p.name AS project_name, p.color AS project_color, e.description, e.duration_seconds, e.is_billable, e.billable_rate_snapshot, e.kind, e.start_at
        FROM time_entries e
        LEFT JOIN projects p ON p.id = e.project_id
        WHERE e.workspace_id = ? AND e.deleted_at IS NULL AND e.end_at IS NOT NULL
@@ -366,17 +560,37 @@ export class ClockinatorStore implements TimerEngineDb {
     const amount = work
       .filter((r) => r.is_billable === 1)
       .reduce((s, r) => s + (Number(r.duration_seconds) / 3600) * Number(r.billable_rate_snapshot || 0), 0);
-    const byProject = new Map<string, { title: string; seconds: number }>();
+    const byProject = new Map<string, { title: string; color: string; seconds: number }>();
+    const byDay = new Map<string, ReportDay>();
     for (const row of work) {
       const title = row.project_name ?? "No project";
-      const current = byProject.get(title) ?? { title, seconds: 0 };
+      const color = row.project_color ?? "#7d776e";
+      const current = byProject.get(title) ?? { title, color, seconds: 0 };
       current.seconds += Number(row.duration_seconds);
       byProject.set(title, current);
+
+      const key = localDayKey(row.start_at);
+      if (!byDay.has(key)) {
+        const [y, m, dd] = key.split("-").map(Number);
+        const date = new Date(y, m - 1, dd);
+        byDay.set(key, {
+          key,
+          label: date.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" }),
+          seconds: 0,
+          stacks: [],
+        });
+      }
+      const day = byDay.get(key)!;
+      day.seconds += Number(row.duration_seconds);
+      const stack = day.stacks.find((s) => s.title === title);
+      if (stack) stack.seconds += Number(row.duration_seconds);
+      else day.stacks.push({ title, color, seconds: Number(row.duration_seconds) });
     }
     return {
       totalSeconds,
       billableSeconds,
       amount,
+      daily: [...byDay.values()],
       groups: [...byProject.values()].sort((a, b) => b.seconds - a.seconds),
       csvRows: this.all<{
         entry_id: string;

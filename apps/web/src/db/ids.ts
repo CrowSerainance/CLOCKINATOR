@@ -23,5 +23,7 @@ export const IDS = {
     research: "tag_research",
     meeting: "tag_meeting",
     frontend: "tag_frontend",
+    planning: "tag_planning",
+    review: "tag_review",
   },
 } as const;

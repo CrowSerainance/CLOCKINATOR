@@ -10,9 +10,7 @@ UI design exploration for Clockinator. These are **mockups**, not the shipped fr
   Projects/Clients, Approvals, and Audit. To change it, edit the source in Claude
   Design and re-export, replacing this file.
 - `thumbnail.webp` — preview thumbnail of the mockup.
-- `references/` — screenshots used as visual reference while designing. **These are
-  screenshots of the Clockify product (a third-party vendor).** See the note below
-  before publishing.
+- `references/` — Clockify screenshots used as **behavior / density** reference while designing. Gitignored. Do not copy that chrome into the product. Visual target is `Clockinator.html`.
 
 ## Viewing the mockup
 

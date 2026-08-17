@@ -30,6 +30,7 @@ export function useTimer() {
     isOnBreak: session?.status === "on_break",
     isIdle: !session,
     projects: store.listActiveProjects(),
+    tags: store.listTags(),
     groups: week.groups,
     weekTotal: week.weekTotal,
     start: store.start.bind(store),
@@ -40,5 +41,6 @@ export function useTimer() {
     beginBreak: store.beginBreak.bind(store),
     finishBreak: store.finishBreak.bind(store),
     restartFrom: store.restartFrom.bind(store),
+    addManual: store.createManualEntry.bind(store),
   };
 }
