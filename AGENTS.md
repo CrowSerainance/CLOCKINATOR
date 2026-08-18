@@ -13,7 +13,7 @@ Self-hosted / **local-first** time operations. Inspired by Clockify **workflows*
 - **Running product:** Vite + React + TS (`apps/web`). SQLite via `sql.js`, persisted to IndexedDB. Schema: `db/migrations/001_init.sql`.
 - **Timer:** `src/domain/timer.ts` + `src/hooks/useTimer.ts` (start/pause/resume/stop/split/break).
 - **Python** `apps/api/timeops_core` is an in-memory sketch. Keep `python -m unittest discover -s tests` green. Do not wire the UI to it.
-- Timesheet / Approvals / Audit are still placeholders. Reports, Time Tracker, and Projects talk to SQLite.
+- Timesheet / Approvals / Audit are live lists from SQLite. Calendar is still out of scope.
 
 ## Rules
 
@@ -25,8 +25,10 @@ Self-hosted / **local-first** time operations. Inspired by Clockify **workflows*
 
 ## First commands
 
+Double-click `Start Clockinator.bat` (repo root or `C:\Clockify`). Or:
+
 ```bash
 cd C:\Clockify\CLOCKINATOR-main
 python -m unittest discover -s tests
-cd apps/web && npm test && npm run dev
+cd apps/web && npm test && npm run start
 ```

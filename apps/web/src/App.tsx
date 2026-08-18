@@ -1,9 +1,11 @@
 import { useState } from "react";
 import { Sidebar } from "./components/Sidebar";
 import { TimeTracker } from "./screens/TimeTracker";
+import { Timesheet } from "./screens/Timesheet";
 import { Projects } from "./screens/Projects";
 import { Reports } from "./screens/Reports";
-import { Placeholder } from "./screens/Placeholder";
+import { Approvals } from "./screens/Approvals";
+import { AuditLog } from "./screens/AuditLog";
 import type { Screen } from "./types";
 import { theme } from "./theme";
 import { useStore } from "./hooks/useClockinator";
@@ -30,23 +32,28 @@ export function App() {
             display: "flex",
             alignItems: "center",
             gap: 12,
-            padding: "0 30px",
-            height: 60,
+            padding: "0 28px",
+            height: 56,
             borderBottom: `1px solid ${theme.border}`,
             flexShrink: 0,
           }}
         >
           <span style={{ fontSize: 14, fontWeight: 700 }}>{store.workspaceName}</span>
           <span style={{ fontSize: 13, color: theme.textFaint }}>/ {TITLES[screen]}</span>
+          <span style={{ fontSize: 12, color: theme.textFaint, marginLeft: 8 }}>{store.userName}</span>
         </header>
         {screen === "tracker" ? (
           <TimeTracker />
+        ) : screen === "timesheet" ? (
+          <Timesheet />
         ) : screen === "projects" ? (
           <Projects />
         ) : screen === "reports" ? (
           <Reports />
+        ) : screen === "approvals" ? (
+          <Approvals />
         ) : (
-          <Placeholder title={TITLES[screen]} />
+          <AuditLog />
         )}
       </main>
     </div>

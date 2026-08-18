@@ -40,7 +40,7 @@ tests/                  # Unit tests for the Python domain core
 
 ```bash
 python -m unittest discover -s tests
-cd apps/web && npm install && npm run dev
+cd apps/web && npm install && npm run start
 uvicorn apps.api.main:app --reload
 ```
 

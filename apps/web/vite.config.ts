@@ -14,9 +14,10 @@ export default defineConfig({
   },
   server: {
     port: 5173,
+    strictPort: true,
     fs: { allow: [repoRoot] },
   },
   optimizeDeps: {
-    exclude: ["sql.js"],
+    include: ["sql.js/dist/sql-asm.js"],
   },
 });

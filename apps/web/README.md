@@ -11,12 +11,15 @@ Local-first Vite + React + TypeScript app. Visual target: [`design/Clockinator.h
 
 See [`HANDOFF.md`](../../HANDOFF.md).
 
-## Develop
+## Launch
+
+Double-click **Start Clockinator.bat** in the repo root (or `C:\Clockify`). First run installs packages; then it opens http://localhost:5173.
 
 ```bash
 cd apps/web
 npm install
-npm run dev      # http://localhost:5173
+npm run start    # opens the browser
+npm run dev      # server only
 npm test
 ```
 

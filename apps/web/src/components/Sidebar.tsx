@@ -1,19 +1,41 @@
 import type { Screen } from "../types";
 import { theme } from "../theme";
+import type { ReactNode } from "react";
+
+function strokeIcon(d: string) {
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      <path d={d} />
+    </svg>
+  );
+}
+
+const clockIcon = (
+  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round">
+    <circle cx="12" cy="12" r="8" />
+    <path d="M12 8v4l3 2" />
+  </svg>
+);
+const gridIcon = strokeIcon("M4 4h7v7H4zM13 4h7v7h-7zM4 13h7v7H4zM13 13h7v7h-7z");
+const chartIcon = strokeIcon("M4 19V9M10 19V5M16 19v-8M20 19H3");
+const folderIcon = strokeIcon("M3 7h6l2 2h10v10H3z");
+const checkIcon = strokeIcon("M9 11l3 3 8-8M5 19h14");
+const listIcon = strokeIcon("M8 6h12M8 12h12M8 18h12M4 6h.01M4 12h.01M4 18h.01");
 
 interface NavItem {
   id: Screen;
   label: string;
   group: string;
+  icon: ReactNode;
 }
 
 const NAV: NavItem[] = [
-  { id: "tracker", label: "Time Tracker", group: "TRACK" },
-  { id: "timesheet", label: "Timesheet", group: "TRACK" },
-  { id: "reports", label: "Reports", group: "ANALYZE" },
-  { id: "projects", label: "Projects", group: "MANAGE" },
-  { id: "approvals", label: "Approvals", group: "REVIEW" },
-  { id: "audit", label: "Audit Log", group: "REVIEW" },
+  { id: "tracker", label: "Time Tracker", group: "TRACK", icon: clockIcon },
+  { id: "timesheet", label: "Timesheet", group: "TRACK", icon: gridIcon },
+  { id: "reports", label: "Reports", group: "ANALYZE", icon: chartIcon },
+  { id: "projects", label: "Projects", group: "MANAGE", icon: folderIcon },
+  { id: "approvals", label: "Approvals", group: "REVIEW", icon: checkIcon },
+  { id: "audit", label: "Audit Log", group: "REVIEW", icon: listIcon },
 ];
 
 export function Sidebar({
@@ -79,7 +101,7 @@ export function Sidebar({
                   display: "flex",
                   alignItems: "center",
                   gap: 12,
-                  padding: "9px 13px",
+                  padding: "8px 13px",
                   borderRadius: 10,
                   cursor: "pointer",
                   fontSize: 14,
@@ -89,6 +111,7 @@ export function Sidebar({
                   color: on ? theme.text : theme.textMuted,
                 }}
               >
+                <span style={{ width: 18, height: 18, display: "flex", color: on ? theme.accent : theme.textFaint }}>{item.icon}</span>
                 {item.label}
               </div>
             </div>

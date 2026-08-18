@@ -1,6 +1,5 @@
 import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
-import { ClockinatorStore } from "../db/store";
-import { openClockinatorStore } from "../db/open";
+import type { ClockinatorStore } from "../db/store";
 import { theme } from "../theme";
 
 const StoreContext = createContext<ClockinatorStore | null>(null);
@@ -11,7 +10,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     let cancelled = false;
-    openClockinatorStore()
+    void import("../db/open")
+      .then(({ openClockinatorStore }) => openClockinatorStore())
       .then((next) => {
         if (!cancelled) setStore(next);
       })
@@ -28,6 +28,9 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       <div style={{ padding: 40, color: theme.text }}>
         <div style={{ fontWeight: 700, marginBottom: 8 }}>Could not open local database</div>
         <div style={{ color: theme.textMuted, fontSize: 14 }}>{error}</div>
+        <div style={{ color: theme.textFaint, fontSize: 13, marginTop: 12 }}>
+          Hard-refresh this tab (Ctrl+Shift+R). Leave the Clockinator console window open.
+        </div>
       </div>
     );
   }

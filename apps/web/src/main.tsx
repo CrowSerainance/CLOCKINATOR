@@ -1,10 +1,13 @@
+import "./styles.css";
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { App } from "./App";
 import { StoreProvider } from "./hooks/useClockinator";
-import "./styles.css";
 
-createRoot(document.getElementById("root")!).render(
+const root = document.getElementById("root");
+if (!root) throw new Error("Missing #root");
+
+createRoot(root).render(
   <StrictMode>
     <StoreProvider>
       <App />

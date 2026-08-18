@@ -84,9 +84,6 @@ class TimeOpsService:
     def add_user(self, workspace_id: str, name: str, email: str, *, default_cost_rate: Decimal = Decimal("0"), role: WorkspaceRole = WorkspaceRole.MEMBER) -> User:
         self._require_workspace(workspace_id)
         user = User(workspace_id=workspace_id, name=name, email=email, default_cost_rate=default_cost_rate, role=role)
-    def add_user(self, workspace_id: str, name: str, email: str, *, default_cost_rate: Decimal = Decimal("0")) -> User:
-        self._require_workspace(workspace_id)
-        user = User(workspace_id=workspace_id, name=name, email=email, default_cost_rate=default_cost_rate)
         self.users[user.id] = user
         return user
 
@@ -139,7 +136,6 @@ class TimeOpsService:
         self.tasks[task.id] = task
         return task
 
-    def add_tag(self, workspace_id: str, name: str, *, color: str = "#38bdf8") -> Tag:
     def add_tag(self, workspace_id: str, name: str, *, color: str = "#38bdf8") -> Tag:
         self._require_workspace(workspace_id)
         tag = Tag(workspace_id=workspace_id, name=name, color=color)
@@ -233,7 +229,6 @@ class TimeOpsService:
             duration_seconds=int((end_at - start_at).total_seconds()),
             project_id=project_id,
             task_id=task_id,
-            tag_ids=list(tag_ids),
             tag_ids=list(tag_ids),
             is_billable=is_billable,
             billable_rate_snapshot=self._resolve_billable_rate(workspace_id, project_id, task_id) if is_billable else Decimal("0"),

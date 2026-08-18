@@ -3,16 +3,32 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Clockinator</title>
+    <style>
+      html, body, #root {
+        margin: 0;
+        height: 100%;
+        background: #1c1a18;
+        color: #9b948a;
+        font-family: system-ui, sans-serif;
+      }
+      #boot {
+        min-height: 100%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 14px;
+      }
+    </style>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
       href="https://fonts.googleapis.com/css2?family=Hanken+Grotesk:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap"
       rel="stylesheet"
     />
-    <title>Clockinator</title>
   </head>
   <body>
-    <div id="root"></div>
+    <div id="root"><div id="boot">Starting Clockinator…</div></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

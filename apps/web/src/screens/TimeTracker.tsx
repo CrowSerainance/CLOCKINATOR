@@ -1,52 +1,74 @@
 import { useState, type CSSProperties } from "react";
 import { theme } from "../theme";
 import { useTimer } from "../hooks/useTimer";
-import type { TimeEntry } from "../types";
-
-function fmtButton(background: string, color: string): CSSProperties {
-  return {
-    background,
-    color,
-    border: "none",
-    borderRadius: 10,
-    padding: "10px 16px",
-    fontWeight: 700,
-    fontSize: 13,
-    cursor: "pointer",
-  };
-}
+import { btn, fieldStyle } from "../components/ui";
+import type { TagOption, TimeEntry } from "../types";
 
 export function TimeTracker() {
   const timer = useTimer();
+  const [query, setQuery] = useState("");
+  const q = query.trim().toLowerCase();
+  const groups = q
+    ? timer.groups
+        .map((group) => ({
+          ...group,
+          entries: group.entries.filter(
+            (entry) =>
+              entry.desc.toLowerCase().includes(q) ||
+              entry.project.toLowerCase().includes(q) ||
+              entry.client.toLowerCase().includes(q) ||
+              entry.tags.some((tag) => tag.toLowerCase().includes(q)),
+          ),
+        }))
+        .filter((group) => group.entries.length > 0)
+    : timer.groups;
 
   return (
-    <div style={{ padding: "26px 30px", overflowY: "auto", flex: 1 }}>
+    <div style={{ padding: "18px 28px 32px", overflowY: "auto", flex: 1 }}>
       {timer.isIdle ? <Composer timer={timer} /> : <SessionBar timer={timer} />}
 
-      <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", marginBottom: 12 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 12 }}>
         <div style={{ fontSize: 15, fontWeight: 700 }}>This week</div>
         <div style={{ fontSize: 13, color: theme.textMuted }}>
           Week total <span className="mono" style={{ color: theme.text, fontWeight: 600 }}>{timer.weekTotal}</span>
         </div>
+        <div style={{ flex: 1 }} />
+        <input
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          placeholder="Find by description, project, tag…"
+          style={{ ...fieldStyle, width: 280 }}
+        />
       </div>
 
-      {timer.groups.length === 0 && (
-        <div style={{ color: theme.textMuted, fontSize: 14, padding: "20px 4px" }}>No time entries this week yet.</div>
+      {groups.length === 0 && (
+        <div style={{ color: theme.textMuted, fontSize: 14, padding: "20px 4px" }}>
+          {q ? "No matching entries." : "No time entries in the last two weeks."}
+        </div>
       )}
 
-      {timer.groups.map((group) => (
+      {groups.map((group) => (
         <div
           key={group.dayKey ?? group.label}
           style={{
             background: theme.surface,
             border: `1px solid ${theme.border}`,
-            borderRadius: 14,
-            marginBottom: 16,
+            borderRadius: 12,
+            marginBottom: 10,
             overflow: "hidden",
           }}
         >
-          <div style={{ display: "flex", justifyContent: "space-between", padding: "12px 18px", fontSize: 13 }}>
-            <span style={{ fontWeight: 700, color: theme.textMuted }}>{group.label}</span>
+          <div
+            style={{
+              display: "flex",
+              justifyContent: "space-between",
+              padding: "9px 16px",
+              fontSize: 12,
+              background: theme.surfaceAlt,
+              borderBottom: `1px solid ${theme.border}`,
+            }}
+          >
+            <span style={{ fontWeight: 700, color: theme.textMuted, letterSpacing: ".02em" }}>{group.label.toUpperCase()}</span>
             <span style={{ color: theme.textMuted }}>
               Total <span className="mono" style={{ color: theme.text, fontWeight: 600 }}>{group.total}</span>
             </span>
@@ -71,94 +93,229 @@ function Composer({ timer }: { timer: ReturnType<typeof useTimer> }) {
   const [description, setDescription] = useState("");
   const [projectId, setProjectId] = useState("");
   const [billable, setBillable] = useState(true);
+  const [tagIds, setTagIds] = useState<string[]>([]);
+  const [mode, setMode] = useState<"timer" | "manual">("timer");
+  const [startTime, setStartTime] = useState("09:00");
+  const [endTime, setEndTime] = useState("10:00");
+  const [error, setError] = useState("");
+
+  const selected = timer.projects.find((p) => p.id === projectId);
 
   const start = () => {
-    const selected = timer.projects.find((p) => p.id === projectId);
     timer.start({
       description: description.trim() || "No description",
       projectId: projectId || null,
       isBillable: selected ? selected.isBillable && billable : billable,
+      tagIds,
     });
     setDescription("");
+    setTagIds([]);
+  };
+
+  const addManual = () => {
+    try {
+      setError("");
+      const [sh, sm] = startTime.split(":").map(Number);
+      const [eh, em] = endTime.split(":").map(Number);
+      const startAt = new Date();
+      startAt.setHours(sh, sm, 0, 0);
+      const endAt = new Date();
+      endAt.setHours(eh, em, 0, 0);
+      timer.addManual({
+        description: description.trim() || "No description",
+        projectId: projectId || null,
+        tagIds,
+        isBillable: selected ? selected.isBillable && billable : billable,
+        start: startAt,
+        end: endAt,
+      });
+      setDescription("");
+      setTagIds([]);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    }
   };
 
   return (
-    <div
-      style={{
-        display: "flex",
-        alignItems: "center",
-        gap: 12,
-        background: theme.surface,
-        border: `1px solid ${theme.border}`,
-        borderRadius: 14,
-        padding: "12px 16px",
-        marginBottom: 22,
-      }}
-    >
-      <input
-        value={description}
-        onChange={(e) => setDescription(e.target.value)}
-        onKeyDown={(e) => {
-          if (e.key === "Enter") start();
-        }}
-        placeholder="What are you working on?"
+    <div style={{ marginBottom: 18 }}>
+      <div
         style={{
-          flex: 1,
-          minWidth: 0,
-          background: "transparent",
-          border: "none",
-          outline: "none",
-          color: theme.text,
-          fontSize: 15,
-          fontWeight: 600,
-        }}
-      />
-      <select
-        value={projectId}
-        onChange={(e) => {
-          const id = e.target.value;
-          setProjectId(id);
-          const project = timer.projects.find((p) => p.id === id);
-          if (project) setBillable(project.isBillable);
-        }}
-        style={{
-          background: theme.surfaceAlt,
-          color: theme.text,
+          display: "flex",
+          alignItems: "center",
+          gap: 10,
+          background: theme.surface,
           border: `1px solid ${theme.border}`,
-          borderRadius: 8,
-          padding: "8px 10px",
-          fontSize: 13,
-          maxWidth: 220,
+          borderRadius: 12,
+          padding: "10px 12px",
         }}
       >
-        <option value="">No project</option>
-        {timer.projects.map((project) => (
-          <option key={project.id} value={project.id}>
-            {project.name}
-          </option>
-        ))}
-      </select>
+        <input
+          value={description}
+          onChange={(e) => setDescription(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") (mode === "timer" ? start : addManual)();
+          }}
+          placeholder="What are you working on?"
+          style={{
+            flex: 1,
+            minWidth: 0,
+            background: "transparent",
+            border: "none",
+            outline: "none",
+            color: theme.text,
+            fontSize: 15,
+            fontWeight: 600,
+          }}
+        />
+        <select
+          value={projectId}
+          onChange={(e) => {
+            const id = e.target.value;
+            setProjectId(id);
+            const project = timer.projects.find((p) => p.id === id);
+            if (project) setBillable(project.isBillable);
+          }}
+          style={{ ...fieldStyle, maxWidth: 200 }}
+        >
+          <option value="">+ Project</option>
+          {timer.projects.map((project) => (
+            <option key={project.id} value={project.id}>
+              {project.name}
+            </option>
+          ))}
+        </select>
+        <TagPicker tags={timer.tags} selected={tagIds} onChange={setTagIds} />
+        <button
+          onClick={() => setBillable((v) => !v)}
+          title={billable ? "Billable" : "Non-billable"}
+          style={{
+            background: "none",
+            border: "none",
+            cursor: "pointer",
+            color: billable ? theme.accent : theme.textFaint,
+            fontWeight: 700,
+            fontSize: 16,
+            width: 28,
+          }}
+        >
+          $
+        </button>
+        {mode === "manual" ? (
+          <>
+            <input type="time" value={startTime} onChange={(e) => setStartTime(e.target.value)} style={fieldStyle} />
+            <span style={{ color: theme.textFaint, fontSize: 12 }}>—</span>
+            <input type="time" value={endTime} onChange={(e) => setEndTime(e.target.value)} style={fieldStyle} />
+            <button onClick={addManual} style={btn(theme.accent, theme.accentInk)}>
+              ADD
+            </button>
+          </>
+        ) : (
+          <>
+            <span className="mono" style={{ fontSize: 20, fontWeight: 600, width: 92, textAlign: "right" }}>
+              0:00:00
+            </span>
+            <button onClick={start} style={btn(theme.accent, theme.accentInk)}>
+              START
+            </button>
+          </>
+        )}
+        <ModeToggle mode={mode} onChange={setMode} />
+      </div>
+      {error && <div style={{ color: theme.danger, fontSize: 12, marginTop: 8 }}>{error}</div>}
+    </div>
+  );
+}
+
+function ModeToggle({ mode, onChange }: { mode: "timer" | "manual"; onChange: (m: "timer" | "manual") => void }) {
+  const item = (id: "timer" | "manual"): CSSProperties => ({
+    background: mode === id ? theme.surfaceAlt : "transparent",
+    color: mode === id ? theme.text : theme.textFaint,
+    border: `1px solid ${theme.border}`,
+    borderRadius: 8,
+    padding: "6px 8px",
+    fontSize: 11,
+    fontWeight: 700,
+    cursor: "pointer",
+  });
+  return (
+    <div style={{ display: "flex", gap: 4 }}>
+      <button title="Timer" onClick={() => onChange("timer")} style={item("timer")}>
+        ⏱
+      </button>
+      <button title="Manual" onClick={() => onChange("manual")} style={item("manual")}>
+        ☰
+      </button>
+    </div>
+  );
+}
+
+function TagPicker({
+  tags,
+  selected,
+  onChange,
+}: {
+  tags: TagOption[];
+  selected: string[];
+  onChange: (ids: string[]) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div style={{ position: "relative" }}>
       <button
-        onClick={() => setBillable((v) => !v)}
-        title={billable ? "Billable" : "Non-billable"}
+        onClick={() => setOpen((v) => !v)}
+        title="Tags"
         style={{
-          background: "none",
-          border: "none",
+          ...fieldStyle,
           cursor: "pointer",
-          color: billable ? theme.accent : theme.textFaint,
-          fontWeight: 700,
-          fontSize: 16,
-          width: 28,
+          color: selected.length ? theme.text : theme.textMuted,
+          minWidth: 88,
         }}
       >
-        $
+        {selected.length ? `${selected.length} tag${selected.length === 1 ? "" : "s"}` : "Tags"}
       </button>
-      <span className="mono" style={{ fontSize: 22, fontWeight: 600, width: 96, textAlign: "right" }}>
-        0:00:00
-      </span>
-      <button onClick={start} style={fmtButton(theme.accent, theme.accentInk)}>
-        START
-      </button>
+      {open && (
+        <div
+          style={{
+            position: "absolute",
+            right: 0,
+            top: "110%",
+            zIndex: 20,
+            width: 220,
+            background: theme.surface,
+            border: `1px solid ${theme.border}`,
+            borderRadius: 10,
+            padding: 8,
+            boxShadow: "0 12px 32px rgba(0,0,0,.35)",
+          }}
+        >
+          {tags.map((tag) => {
+            const on = selected.includes(tag.id);
+            return (
+              <label
+                key={tag.id}
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 8,
+                  padding: "6px 8px",
+                  borderRadius: 8,
+                  cursor: "pointer",
+                  fontSize: 13,
+                  background: on ? theme.accent + "18" : "transparent",
+                }}
+              >
+                <input
+                  type="checkbox"
+                  checked={on}
+                  onChange={() => onChange(on ? selected.filter((id) => id !== tag.id) : [...selected, tag.id])}
+                />
+                <span style={{ width: 8, height: 8, borderRadius: "50%", background: tag.color }} />
+                {tag.name}
+              </label>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }
@@ -178,9 +335,9 @@ function SessionBar({ timer }: { timer: ReturnType<typeof useTimer> }) {
         gap: 12,
         background: theme.surface,
         border: `1px solid ${theme.border}`,
-        borderRadius: 14,
-        padding: "16px 18px",
-        marginBottom: 22,
+        borderRadius: 12,
+        padding: "14px 16px",
+        marginBottom: 18,
       }}
     >
       <span
@@ -205,28 +362,28 @@ function SessionBar({ timer }: { timer: ReturnType<typeof useTimer> }) {
       </span>
       {timer.isRunning && (
         <>
-          <button onClick={() => timer.pause()} style={fmtButton(theme.surfaceAlt, theme.text)}>
+          <button onClick={() => timer.pause()} style={btn(theme.surfaceAlt, theme.text)}>
             Pause
           </button>
-          <button onClick={() => timer.split()} style={fmtButton(theme.surfaceAlt, theme.text)}>
+          <button onClick={() => timer.split()} style={btn(theme.surfaceAlt, theme.text)}>
             Split
           </button>
-          <button onClick={() => timer.beginBreak()} style={fmtButton(theme.surfaceAlt, theme.text)}>
+          <button onClick={() => timer.beginBreak()} style={btn(theme.surfaceAlt, theme.text)}>
             Break
           </button>
         </>
       )}
       {timer.isPaused && (
-        <button onClick={() => timer.resume()} style={fmtButton(theme.accent, theme.accentInk)}>
+        <button onClick={() => timer.resume()} style={btn(theme.accent, theme.accentInk)}>
           Resume
         </button>
       )}
       {timer.isOnBreak && (
-        <button onClick={() => timer.finishBreak()} style={fmtButton(theme.accent, theme.accentInk)}>
+        <button onClick={() => timer.finishBreak()} style={btn(theme.accent, theme.accentInk)}>
           End break
         </button>
       )}
-      <button onClick={() => timer.stop()} style={fmtButton(theme.danger, "#1c1a18")}>
+      <button onClick={() => timer.stop()} style={btn(theme.danger, "#1c1a18")}>
         Stop
       </button>
     </div>
@@ -234,34 +391,52 @@ function SessionBar({ timer }: { timer: ReturnType<typeof useTimer> }) {
 }
 
 function EntryRow({ entry, canRestart, onRestart }: { entry: TimeEntry; canRestart: boolean; onRestart: () => void }) {
+  const tags = entry.tags.length ? entry.tags : entry.tag ? [entry.tag] : [];
   return (
     <div
       style={{
-        display: "flex",
+        display: "grid",
+        gridTemplateColumns: "minmax(160px,1.6fr) minmax(160px,1.3fr) minmax(90px,0.8fr) 22px 110px 72px 36px",
         alignItems: "center",
-        gap: 14,
-        padding: "14px 18px",
+        gap: 10,
+        padding: "9px 16px",
         borderTop: `1px solid ${theme.border}`,
       }}
     >
-      <div style={{ fontSize: 14, fontWeight: 600, flex: 1, minWidth: 0 }}>{entry.desc}</div>
-      <div style={{ display: "flex", alignItems: "center", gap: 7, width: 220 }}>
+      <div style={{ fontSize: 13, fontWeight: 600, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+        {entry.desc}
+      </div>
+      <div style={{ display: "flex", alignItems: "center", gap: 7, minWidth: 0 }}>
         <span style={{ width: 8, height: 8, borderRadius: "50%", background: entry.color, flexShrink: 0 }} />
-        <span style={{ fontSize: 13, color: theme.text }}>{entry.project}</span>
-        <span style={{ fontSize: 13, color: theme.textFaint }}>{entry.client ? `· ${entry.client}` : ""}</span>
+        <span style={{ fontSize: 12, color: theme.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+          {entry.project}
+        </span>
+        <span style={{ fontSize: 12, color: theme.textFaint, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+          {entry.client ? `· ${entry.client}` : ""}
+        </span>
       </div>
-      <div style={{ width: 90 }}>
-        {entry.tag && (
-          <span style={{ fontSize: 11, fontWeight: 600, color: theme.textMuted, background: theme.surfaceAlt, borderRadius: 6, padding: "3px 8px" }}>
-            {entry.tag}
+      <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
+        {tags.map((tag) => (
+          <span
+            key={tag}
+            style={{
+              fontSize: 10,
+              fontWeight: 600,
+              color: theme.textMuted,
+              background: theme.surfaceAlt,
+              borderRadius: 6,
+              padding: "2px 6px",
+            }}
+          >
+            {tag}
           </span>
-        )}
+        ))}
       </div>
-      <span style={{ width: 18, textAlign: "center", color: entry.billable ? theme.accent : theme.textFaint, fontWeight: 700 }}>$</span>
-      <span className="mono" style={{ fontSize: 13, color: theme.textMuted, width: 120 }}>
+      <span style={{ textAlign: "center", color: entry.billable ? theme.accent : theme.textFaint, fontWeight: 700 }}>$</span>
+      <span className="mono" style={{ fontSize: 12, color: theme.textMuted }}>
         {entry.start} – {entry.end}
       </span>
-      <span className="mono" style={{ fontSize: 14, fontWeight: 600, width: 80, textAlign: "right" }}>
+      <span className="mono" style={{ fontSize: 13, fontWeight: 600, textAlign: "right" }}>
         {entry.dur}
       </span>
       <button
@@ -273,7 +448,7 @@ function EntryRow({ entry, canRestart, onRestart }: { entry: TimeEntry; canResta
           border: "none",
           cursor: canRestart ? "pointer" : "default",
           color: canRestart ? theme.textMuted : theme.border,
-          fontSize: 14,
+          fontSize: 13,
           padding: 4,
         }}
       >
