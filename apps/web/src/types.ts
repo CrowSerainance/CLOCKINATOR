@@ -1,8 +1,11 @@
 export type Screen =
   | "tracker"
   | "timesheet"
+  | "calendar"
   | "reports"
   | "projects"
+  | "clients"
+  | "tags"
   | "approvals"
   | "audit";
 
@@ -14,11 +17,68 @@ export interface TimeEntry {
   client: string;
   tag?: string;
   tags: string[];
+  tagIds?: string[];
+  projectId?: string | null;
+  taskId?: string | null;
   start: string;
   end: string;
+  startAt?: string;
+  endAt?: string | null;
   dur: string;
   billable: boolean;
   approval?: string;
+  kind?: string;
+}
+
+export interface CalendarBlock {
+  id: string;
+  desc: string;
+  project: string;
+  color: string;
+  tag?: string;
+  startMin: number;
+  endMin: number;
+  dur: string;
+}
+
+export interface CalendarDay {
+  key: string;
+  label: string;
+  weekday: string;
+  dateLabel: string;
+  totalSeconds: number;
+  entries: CalendarBlock[];
+}
+
+export interface TaskOption {
+  id: string;
+  projectId: string;
+  name: string;
+}
+
+export interface ClientRow {
+  id: string;
+  name: string;
+  projects: number;
+  tracked: string;
+}
+
+export interface TagRow {
+  id: string;
+  name: string;
+  color: string;
+  uses: number;
+}
+
+export interface ProjectDraft {
+  name: string;
+  clientId: string;
+  color: string;
+  isBillable: boolean;
+  billableRate: string;
+  estimatedHours: string;
+  access: "public" | "private";
+  status: "active" | "on_hold" | "archived";
 }
 
 export interface TagOption {
@@ -33,6 +93,7 @@ export interface TimesheetCell {
 }
 
 export interface TimesheetRow {
+  projectId: string | null;
   project: string;
   color: string;
   cells: TimesheetCell[];
@@ -86,6 +147,7 @@ export interface ProjectRow {
   name: string;
   color: string;
   client: string;
+  clientId?: string | null;
   tracked: string;
   progress: number | null; // 0..1, or null when no budget
   budget: string;
@@ -94,4 +156,8 @@ export interface ProjectRow {
   statusColor: string;
   access: ProjectAccess;
   favorite: boolean;
+  isBillable?: boolean;
+  billableRate?: string | null;
+  estimatedHours?: string | null;
+  rawStatus?: string;
 }

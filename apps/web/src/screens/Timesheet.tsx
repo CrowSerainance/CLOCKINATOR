@@ -3,11 +3,14 @@ import { theme } from "../theme";
 import { useStore, useStoreRevision } from "../hooks/useClockinator";
 import { addDays, formatDuration, startOfLocalWeek } from "../domain/duration";
 import { btn, card, pagePad } from "../components/ui";
+import { Modal } from "../components/Modal";
+import { EntryEditor } from "../components/EntryEditor";
 
 export function Timesheet() {
   const store = useStore();
   useStoreRevision();
   const [offset, setOffset] = useState(0);
+  const [draft, setDraft] = useState<{ date: string; start: string; end: string; projectId?: string | null } | null>(null);
   const weekStart = addDays(startOfLocalWeek(new Date()), offset * 7);
   const grid = store.timesheetWeek(weekStart);
   const COLS = `minmax(180px,1.4fr) repeat(7, 1fr) 90px`;
@@ -33,6 +36,15 @@ export function Timesheet() {
         <div className="mono" style={{ fontSize: 18, fontWeight: 700 }}>
           {formatDuration(grid.weekTotal)}
         </div>
+        <button
+          onClick={() => {
+            const n = store.submitWeek(weekStart);
+            window.alert(n ? `Submitted ${n} draft entries.` : "No draft entries this week.");
+          }}
+          style={btn(theme.accent, theme.accentInk)}
+        >
+          Submit week
+        </button>
       </div>
 
       <div style={card}>
@@ -59,7 +71,7 @@ export function Timesheet() {
         </div>
         {grid.rows.map((row) => (
           <div
-            key={row.project}
+            key={row.projectId ?? row.project}
             style={{
               display: "grid",
               gridTemplateColumns: COLS,
@@ -76,9 +88,25 @@ export function Timesheet() {
               </span>
             </div>
             {row.cells.map((cell, i) => (
-              <span key={grid.days[i].key} className="mono" style={{ fontSize: 12, textAlign: "center", color: cell.seconds ? theme.text : theme.textFaint }}>
+              <button
+                key={grid.days[i].key}
+                onClick={() => {
+                  if (!cell.seconds) {
+                    setDraft({ date: grid.days[i].key, start: "09:00", end: "10:00", projectId: row.projectId });
+                  }
+                }}
+                className="mono"
+                style={{
+                  fontSize: 12,
+                  textAlign: "center",
+                  color: cell.seconds ? theme.text : theme.textFaint,
+                  background: "none",
+                  border: "none",
+                  cursor: cell.seconds ? "default" : "pointer",
+                }}
+              >
                 {cell.label}
-              </span>
+              </button>
             ))}
             <span className="mono" style={{ fontSize: 13, fontWeight: 600, textAlign: "right" }}>
               {formatDuration(row.totalSeconds)}
@@ -106,9 +134,14 @@ export function Timesheet() {
           </span>
         </div>
         {grid.rows.length === 0 && (
-          <div style={{ padding: "28px 18px", color: theme.textMuted, fontSize: 13 }}>No completed work this week.</div>
+          <div style={{ padding: "28px 18px", color: theme.textMuted, fontSize: 13 }}>No completed work this week. Click + in Calendar or Tracker to add time.</div>
         )}
       </div>
+      {draft && (
+        <Modal title="Add time" onClose={() => setDraft(null)}>
+          <EntryEditor preset={draft} onClose={() => setDraft(null)} />
+        </Modal>
+      )}
     </div>
   );
 }

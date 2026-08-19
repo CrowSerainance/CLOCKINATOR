@@ -55,3 +55,19 @@ export function dayLabel(dayKey: string, todayKey: string, yesterdayKey: string)
   const date = new Date(y, m - 1, dd);
   return date.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" });
 }
+
+export function toDateInput(d: Date): string {
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}
+
+export function toTimeInput(d: Date): string {
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+export function fromDateAndTime(date: string, time: string): Date {
+  const [y, m, d] = date.split("-").map(Number);
+  const [h, min] = time.split(":").map(Number);
+  return new Date(y, m - 1, d, h, min, 0, 0);
+}

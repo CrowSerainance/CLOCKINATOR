@@ -1,12 +1,17 @@
 import { useState, type CSSProperties } from "react";
 import { theme } from "../theme";
 import { useTimer } from "../hooks/useTimer";
+import { useStore } from "../hooks/useClockinator";
 import { btn, fieldStyle } from "../components/ui";
+import { Modal } from "../components/Modal";
+import { EntryEditor } from "../components/EntryEditor";
 import type { TagOption, TimeEntry } from "../types";
 
 export function TimeTracker() {
   const timer = useTimer();
   const [query, setQuery] = useState("");
+  const [editing, setEditing] = useState<TimeEntry | null>(null);
+  const [adding, setAdding] = useState(false);
   const q = query.trim().toLowerCase();
   const groups = q
     ? timer.groups
@@ -39,6 +44,9 @@ export function TimeTracker() {
           placeholder="Find by description, project, tag…"
           style={{ ...fieldStyle, width: 280 }}
         />
+        <button onClick={() => setAdding(true)} style={btn(theme.surfaceAlt, theme.text)}>
+          + Add time
+        </button>
       </div>
 
       {groups.length === 0 && (
@@ -81,10 +89,22 @@ export function TimeTracker() {
               onRestart={() => {
                 if (entry.id) timer.restartFrom(entry.id);
               }}
+              onEdit={() => setEditing(entry)}
             />
           ))}
         </div>
       ))}
+      {(editing || adding) && (
+        <Modal title={editing ? "Edit entry" : "Add time"} onClose={() => { setEditing(null); setAdding(false); }}>
+          <EntryEditor
+            entry={editing ?? undefined}
+            onClose={() => {
+              setEditing(null);
+              setAdding(false);
+            }}
+          />
+        </Modal>
+      )}
     </div>
   );
 }
@@ -99,17 +119,22 @@ function Composer({ timer }: { timer: ReturnType<typeof useTimer> }) {
   const [endTime, setEndTime] = useState("10:00");
   const [error, setError] = useState("");
 
+  const store = useStore();
+  const tasks = projectId ? store.listTasks(projectId) : [];
+  const [taskId, setTaskId] = useState("");
   const selected = timer.projects.find((p) => p.id === projectId);
 
   const start = () => {
     timer.start({
       description: description.trim() || "No description",
       projectId: projectId || null,
+      taskId: taskId || null,
       isBillable: selected ? selected.isBillable && billable : billable,
       tagIds,
     });
     setDescription("");
     setTagIds([]);
+    setTaskId("");
   };
 
   const addManual = () => {
@@ -124,6 +149,7 @@ function Composer({ timer }: { timer: ReturnType<typeof useTimer> }) {
       timer.addManual({
         description: description.trim() || "No description",
         projectId: projectId || null,
+        taskId: taskId || null,
         tagIds,
         isBillable: selected ? selected.isBillable && billable : billable,
         start: startAt,
@@ -131,6 +157,7 @@ function Composer({ timer }: { timer: ReturnType<typeof useTimer> }) {
       });
       setDescription("");
       setTagIds([]);
+      setTaskId("");
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     }
@@ -172,6 +199,7 @@ function Composer({ timer }: { timer: ReturnType<typeof useTimer> }) {
           onChange={(e) => {
             const id = e.target.value;
             setProjectId(id);
+            setTaskId("");
             const project = timer.projects.find((p) => p.id === id);
             if (project) setBillable(project.isBillable);
           }}
@@ -184,6 +212,16 @@ function Composer({ timer }: { timer: ReturnType<typeof useTimer> }) {
             </option>
           ))}
         </select>
+        {projectId && (
+          <select value={taskId} onChange={(e) => setTaskId(e.target.value)} style={{ ...fieldStyle, maxWidth: 160 }}>
+            <option value="">Task</option>
+            {tasks.map((task) => (
+              <option key={task.id} value={task.id}>
+                {task.name}
+              </option>
+            ))}
+          </select>
+        )}
         <TagPicker tags={timer.tags} selected={tagIds} onChange={setTagIds} />
         <button
           onClick={() => setBillable((v) => !v)}
@@ -390,10 +428,22 @@ function SessionBar({ timer }: { timer: ReturnType<typeof useTimer> }) {
   );
 }
 
-function EntryRow({ entry, canRestart, onRestart }: { entry: TimeEntry; canRestart: boolean; onRestart: () => void }) {
+function EntryRow({
+  entry,
+  canRestart,
+  onRestart,
+  onEdit,
+}: {
+  entry: TimeEntry;
+  canRestart: boolean;
+  onRestart: () => void;
+  onEdit: () => void;
+}) {
   const tags = entry.tags.length ? entry.tags : entry.tag ? [entry.tag] : [];
   return (
     <div
+      onClick={onEdit}
+      title="Edit entry"
       style={{
         display: "grid",
         gridTemplateColumns: "minmax(160px,1.6fr) minmax(160px,1.3fr) minmax(90px,0.8fr) 22px 110px 72px 36px",
@@ -401,6 +451,7 @@ function EntryRow({ entry, canRestart, onRestart }: { entry: TimeEntry; canResta
         gap: 10,
         padding: "9px 16px",
         borderTop: `1px solid ${theme.border}`,
+        cursor: "pointer",
       }}
     >
       <div style={{ fontSize: 13, fontWeight: 600, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
@@ -440,7 +491,10 @@ function EntryRow({ entry, canRestart, onRestart }: { entry: TimeEntry; canResta
         {entry.dur}
       </span>
       <button
-        onClick={onRestart}
+        onClick={(e) => {
+          e.stopPropagation();
+          onRestart();
+        }}
         disabled={!canRestart}
         title="Continue this entry"
         style={{

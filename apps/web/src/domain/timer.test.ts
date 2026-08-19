@@ -80,4 +80,32 @@ describe("timer engine", () => {
     expect(week.groups.length).toBeGreaterThan(4);
     expect(week.groups.some((g) => g.entries.length > 1)).toBe(true);
   });
+
+  it("edits and deletes a completed entry", async () => {
+    const store = await makeStore();
+    const at = new Date("2026-08-17T12:00:00");
+    const week = store.listWeekGroups(at);
+    const entry = week.groups[0]?.entries[0];
+    expect(entry?.id).toBeTruthy();
+    store.updateEntry({
+      id: entry!.id!,
+      description: "Edited checkout",
+      projectId: IDS.projects.mobile,
+      taskId: IDS.tasks.hifi,
+      tagIds: [IDS.tags.design],
+      isBillable: true,
+      start: new Date("2026-08-17T09:00:00"),
+      end: new Date("2026-08-17T11:00:00"),
+    });
+    expect(store.getEntry(entry!.id!)?.desc).toBe("Edited checkout");
+    store.deleteEntry(entry!.id!);
+    expect(store.getEntry(entry!.id!)).toBeUndefined();
+  });
+
+  it("builds a calendar week with day columns", async () => {
+    const store = await makeStore();
+    const cal = store.calendarWeek(new Date("2026-08-16T12:00:00"));
+    expect(cal.days).toHaveLength(7);
+    expect(cal.weekTotal).toBeGreaterThan(0);
+  });
 });

@@ -12,7 +12,20 @@ import {
   type OpenSession,
   type StartTimerInput,
 } from "../domain/timer";
-import type { ApprovalRow, AuditRow, DayGroup, ProjectRow, ReportDay, TagOption, TimesheetGrid } from "../types";
+import type {
+  ApprovalRow,
+  AuditRow,
+  CalendarDay,
+  ClientRow,
+  DayGroup,
+  ProjectDraft,
+  ProjectRow,
+  ReportDay,
+  TagOption,
+  TagRow,
+  TaskOption,
+  TimesheetGrid,
+} from "../types";
 import {
   addDays,
   dayLabel,
@@ -236,8 +249,8 @@ export class ClockinatorStore implements TimerEngineDb {
   }
 
   listProjects(): ProjectRow[] {
-    const rows = this.all<ProjectListRow>(
-      `SELECT p.id, p.name, p.color, c.name AS client_name,
+    const rows = this.all<ProjectListRow & { client_id: string | null }>(
+      `SELECT p.id, p.name, p.color, c.name AS client_name, p.client_id,
               COALESCE(SUM(CASE WHEN e.kind = 'work' AND e.end_at IS NOT NULL AND e.deleted_at IS NULL THEN e.duration_seconds ELSE 0 END), 0) AS tracked_seconds,
               p.estimated_hours, p.billable_rate, p.is_billable, p.status, p.access, p.is_favorite
        FROM projects p
@@ -259,6 +272,7 @@ export class ClockinatorStore implements TimerEngineDb {
         name: row.name,
         color: row.color ?? "#7d776e",
         client: row.client_name ?? "—",
+        clientId: row.client_id,
         tracked: `${trackedHours.toFixed(1)}h`,
         progress,
         budget: estimate ? `${Math.round(trackedHours)} / ${estimate}h` : "No budget",
@@ -267,6 +281,10 @@ export class ClockinatorStore implements TimerEngineDb {
         statusColor: status.color,
         access: row.access as ProjectRow["access"],
         favorite: row.is_favorite === 1,
+        isBillable: row.is_billable === 1,
+        billableRate: row.billable_rate,
+        estimatedHours: row.estimated_hours,
+        rawStatus: row.status,
       };
     });
   }
@@ -276,15 +294,70 @@ export class ClockinatorStore implements TimerEngineDb {
     this.touch();
   }
 
-  createProject(name: string): void {
+  createProject(input: ProjectDraft): void {
     const id = this.newId();
     const at = this.now().toISOString();
+    const name = input.name.trim();
+    const rate = input.isBillable && input.billableRate.trim() ? input.billableRate.trim() : null;
     this.run(
       `INSERT INTO projects (id, workspace_id, client_id, name, color, status, access, is_billable, is_favorite, billable_rate, estimated_hours, created_at)
-       VALUES (?, ?, NULL, ?, '#5bbd7e', 'active', 'public', 1, 0, NULL, NULL, ?)`,
-      [id, this.workspaceId, name.trim(), at],
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?)`,
+      [
+        id,
+        this.workspaceId,
+        input.clientId || null,
+        name,
+        input.color,
+        input.status,
+        input.access,
+        input.isBillable ? 1 : 0,
+        rate,
+        input.estimatedHours.trim() || null,
+        at,
+      ],
     );
-    this.audit("project.created", "project", id, { name: name.trim() });
+    if (rate) {
+      this.run(
+        `INSERT INTO rate_history (id, workspace_id, subject_type, subject_id, rate_kind, amount, currency, effective_from, effective_to, created_at)
+         VALUES (?, ?, 'project', ?, 'billable', ?, 'USD', ?, NULL, ?)`,
+        [this.newId(), this.workspaceId, id, rate, at, at],
+      );
+    }
+    this.audit("project.created", "project", id, { name });
+    this.touch();
+  }
+
+  updateProject(projectId: string, input: ProjectDraft): void {
+    const at = this.now().toISOString();
+    const current = this.get<{ billable_rate: string | null }>(`SELECT billable_rate FROM projects WHERE id = ?`, [projectId]);
+    const rate = input.isBillable && input.billableRate.trim() ? input.billableRate.trim() : null;
+    this.run(
+      `UPDATE projects SET name = ?, client_id = ?, color = ?, status = ?, access = ?, is_billable = ?, billable_rate = ?, estimated_hours = ?
+       WHERE id = ?`,
+      [
+        input.name.trim(),
+        input.clientId || null,
+        input.color,
+        input.status,
+        input.access,
+        input.isBillable ? 1 : 0,
+        rate,
+        input.estimatedHours.trim() || null,
+        projectId,
+      ],
+    );
+    if (rate && rate !== (current?.billable_rate ?? null)) {
+      this.run(
+        `UPDATE rate_history SET effective_to = ? WHERE subject_type = 'project' AND subject_id = ? AND rate_kind = 'billable' AND effective_to IS NULL`,
+        [at, projectId],
+      );
+      this.run(
+        `INSERT INTO rate_history (id, workspace_id, subject_type, subject_id, rate_kind, amount, currency, effective_from, effective_to, created_at)
+         VALUES (?, ?, 'project', ?, 'billable', ?, 'USD', ?, NULL, ?)`,
+        [this.newId(), this.workspaceId, projectId, rate, at, at],
+      );
+    }
+    this.audit("project.updated", "project", projectId, { name: input.name.trim() });
     this.touch();
   }
 
@@ -319,9 +392,89 @@ export class ClockinatorStore implements TimerEngineDb {
     );
   }
 
+  listClientRows(): ClientRow[] {
+    return this.all<{ id: string; name: string; projects: number; tracked_seconds: number }>(
+      `SELECT c.id, c.name,
+              COUNT(DISTINCT p.id) AS projects,
+              COALESCE(SUM(CASE WHEN e.kind = 'work' AND e.end_at IS NOT NULL AND e.deleted_at IS NULL THEN e.duration_seconds ELSE 0 END), 0) AS tracked_seconds
+       FROM clients c
+       LEFT JOIN projects p ON p.client_id = c.id
+       LEFT JOIN time_entries e ON e.project_id = p.id
+       WHERE c.workspace_id = ? AND c.archived = 0
+       GROUP BY c.id
+       ORDER BY c.name COLLATE NOCASE`,
+      [this.workspaceId],
+    ).map((row) => ({
+      id: row.id,
+      name: row.name,
+      projects: Number(row.projects),
+      tracked: `${(Number(row.tracked_seconds) / 3600).toFixed(1)}h`,
+    }));
+  }
+
+  createClient(name: string): void {
+    const id = this.newId();
+    this.run(`INSERT INTO clients (id, workspace_id, name, archived, created_at) VALUES (?, ?, ?, 0, ?)`, [
+      id,
+      this.workspaceId,
+      name.trim(),
+      this.now().toISOString(),
+    ]);
+    this.audit("client.created", "client", id, { name: name.trim() });
+    this.touch();
+  }
+
+  listTagRows(): TagRow[] {
+    return this.all<{ id: string; name: string; color: string | null; uses: number }>(
+      `SELECT t.id, t.name, t.color, COUNT(et.time_entry_id) AS uses
+       FROM tags t
+       LEFT JOIN time_entry_tags et ON et.tag_id = t.id
+       WHERE t.workspace_id = ?
+       GROUP BY t.id
+       ORDER BY t.name COLLATE NOCASE`,
+      [this.workspaceId],
+    ).map((row) => ({ id: row.id, name: row.name, color: row.color ?? "#7d776e", uses: Number(row.uses) }));
+  }
+
+  createTag(name: string, color: string): void {
+    const id = this.newId();
+    this.run(`INSERT INTO tags (id, workspace_id, name, color, created_at) VALUES (?, ?, ?, ?, ?)`, [
+      id,
+      this.workspaceId,
+      name.trim(),
+      color,
+      this.now().toISOString(),
+    ]);
+    this.audit("tag.created", "tag", id, { name: name.trim() });
+    this.touch();
+  }
+
+  listTasks(projectId?: string | null): TaskOption[] {
+    const sql = projectId
+      ? `SELECT id, project_id, name FROM tasks WHERE workspace_id = ? AND project_id = ? AND status = 'active' ORDER BY name COLLATE NOCASE`
+      : `SELECT id, project_id, name FROM tasks WHERE workspace_id = ? AND status = 'active' ORDER BY name COLLATE NOCASE`;
+    const params = projectId ? [this.workspaceId, projectId] : [this.workspaceId];
+    return this.all<{ id: string; project_id: string; name: string }>(sql, params).map((row) => ({
+      id: row.id,
+      projectId: row.project_id,
+      name: row.name,
+    }));
+  }
+
+  createTask(projectId: string, name: string): void {
+    const id = this.newId();
+    this.run(
+      `INSERT INTO tasks (id, workspace_id, project_id, name, billable_rate, status, created_at) VALUES (?, ?, ?, ?, NULL, 'active', ?)`,
+      [id, this.workspaceId, projectId, name.trim(), this.now().toISOString()],
+    );
+    this.audit("task.created", "task", id, { name: name.trim() });
+    this.touch();
+  }
+
   createManualEntry(input: {
     description: string;
     projectId: string | null;
+    taskId?: string | null;
     tagIds: string[];
     isBillable: boolean;
     start: Date;
@@ -341,13 +494,14 @@ export class ClockinatorStore implements TimerEngineDb {
          id, workspace_id, user_id, created_by_user_id, session_id, parent_entry_id, project_id, task_id,
          kind, source, description, start_at, end_at, duration_seconds, is_billable, billable_rate_snapshot,
          cost_rate_snapshot, approval_status, timezone, deleted_at, created_at
-       ) VALUES (?, ?, ?, ?, NULL, NULL, ?, NULL, 'work', 'web', ?, ?, ?, ?, ?, ?, ?, 'draft', 'UTC', NULL, ?)`,
+       )        VALUES (?, ?, ?, ?, NULL, NULL, ?, ?, 'work', 'web', ?, ?, ?, ?, ?, ?, ?, 'draft', 'UTC', NULL, ?)`,
       [
         id,
         this.workspaceId,
         this.userId,
         this.userId,
         input.projectId,
+        input.taskId ?? null,
         input.description.trim() || "No description",
         startIso,
         endIso,
@@ -370,9 +524,10 @@ export class ClockinatorStore implements TimerEngineDb {
     const to = addDays(startOfLocalDay(at), 1);
     const weekStart = startOfLocalWeek(at);
     const weekEnd = addDays(weekStart, 7);
-    const rows = this.all<EntryListRow & { tags: string | null; approval_status: string }>(
+    const rows = this.all<EntryListRow & { tags: string | null; tag_ids: string | null; approval_status: string }>(
       `SELECT e.id, e.kind, e.description, p.name AS project_name, c.name AS client_name, p.color AS project_color,
               (SELECT GROUP_CONCAT(t.name, ', ') FROM time_entry_tags et JOIN tags t ON t.id = et.tag_id WHERE et.time_entry_id = e.id) AS tags,
+              (SELECT GROUP_CONCAT(et.tag_id) FROM time_entry_tags et WHERE et.time_entry_id = e.id) AS tag_ids,
               e.start_at, e.end_at, e.duration_seconds, e.is_billable, e.project_id, e.task_id, e.approval_status
        FROM time_entries e
        LEFT JOIN projects p ON p.id = e.project_id
@@ -399,6 +554,10 @@ export class ClockinatorStore implements TimerEngineDb {
         .split(",")
         .map((t) => t.trim())
         .filter(Boolean);
+      const tagIds = (row.tag_ids ?? "")
+        .split(",")
+        .map((t) => t.trim())
+        .filter(Boolean);
       byDay.get(key)!.entries.push({
         id: row.id,
         desc: row.description || "(no description)",
@@ -407,11 +566,17 @@ export class ClockinatorStore implements TimerEngineDb {
         client: row.client_name ?? "",
         tag: tags[0],
         tags,
+        tagIds,
+        projectId: row.project_id,
+        taskId: row.task_id,
         start: formatClock(row.start_at),
         end: row.end_at ? formatClock(row.end_at) : "…",
+        startAt: row.start_at,
+        endAt: row.end_at,
         dur: formatDuration(duration),
         billable: row.is_billable === 1,
         approval: row.approval_status,
+        kind: row.kind,
       });
     }
     const groups = [...byDay.values()].map((g) => ({
@@ -432,8 +597,8 @@ export class ClockinatorStore implements TimerEngineDb {
         totalSeconds: 0,
       };
     });
-    const rows = this.all<{ project: string | null; color: string | null; start_at: string; duration_seconds: number }>(
-      `SELECT p.name AS project, p.color, e.start_at, e.duration_seconds
+    const rows = this.all<{ project_id: string | null; project: string | null; color: string | null; start_at: string; duration_seconds: number }>(
+      `SELECT p.id AS project_id, p.name AS project, p.color, e.start_at, e.duration_seconds
        FROM time_entries e
        LEFT JOIN projects p ON p.id = e.project_id
        WHERE e.workspace_id = ? AND e.user_id = ? AND e.deleted_at IS NULL AND e.kind = 'work' AND e.end_at IS NOT NULL
@@ -442,9 +607,11 @@ export class ClockinatorStore implements TimerEngineDb {
     );
     const byProject = new Map<string, TimesheetGrid["rows"][number]>();
     for (const row of rows) {
+      const mapKey = row.project_id ?? "none";
       const title = row.project ?? "No project";
-      if (!byProject.has(title)) {
-        byProject.set(title, {
+      if (!byProject.has(mapKey)) {
+        byProject.set(mapKey, {
+          projectId: row.project_id,
           project: title,
           color: row.color ?? "#7d776e",
           cells: days.map(() => ({ seconds: 0, label: "—" })),
@@ -455,7 +622,7 @@ export class ClockinatorStore implements TimerEngineDb {
       const dayIndex = days.findIndex((d) => d.key === key);
       if (dayIndex < 0) continue;
       const seconds = Number(row.duration_seconds);
-      const projectRow = byProject.get(title)!;
+      const projectRow = byProject.get(mapKey)!;
       projectRow.cells[dayIndex].seconds += seconds;
       projectRow.totalSeconds += seconds;
       days[dayIndex].totalSeconds += seconds;
@@ -620,6 +787,170 @@ export class ClockinatorStore implements TimerEngineDb {
         [this.workspaceId, fromIso, toIso],
       ),
     };
+  }
+
+  updateEntry(input: {
+    id: string;
+    description: string;
+    projectId: string | null;
+    taskId: string | null;
+    tagIds: string[];
+    isBillable: boolean;
+    start: Date;
+    end: Date;
+  }): void {
+    const current = this.get<{ approval_status: string }>(`SELECT approval_status FROM time_entries WHERE id = ? AND deleted_at IS NULL`, [input.id]);
+    if (!current) throw new Error("Unknown time entry");
+    if (current.approval_status === "locked") throw new Error("Locked entries cannot be edited");
+    if (input.end.getTime() <= input.start.getTime()) throw new Error("End time must be after start time");
+    const startIso = input.start.toISOString();
+    const endIso = input.end.toISOString();
+    const duration = durationSeconds(startIso, endIso);
+    const billableRate = input.isBillable ? this.resolveBillableRate(input.projectId, input.taskId, input.start) : "0";
+    this.run(
+      `UPDATE time_entries SET description = ?, project_id = ?, task_id = ?, is_billable = ?, billable_rate_snapshot = ?, start_at = ?, end_at = ?, duration_seconds = ?
+       WHERE id = ?`,
+      [
+        input.description.trim() || "No description",
+        input.projectId,
+        input.taskId,
+        input.isBillable ? 1 : 0,
+        billableRate,
+        startIso,
+        endIso,
+        duration,
+        input.id,
+      ],
+    );
+    this.run(`DELETE FROM time_entry_tags WHERE time_entry_id = ?`, [input.id]);
+    for (const tagId of input.tagIds) {
+      this.run(`INSERT INTO time_entry_tags (time_entry_id, tag_id) VALUES (?, ?)`, [input.id, tagId]);
+    }
+    this.audit("time_entry.updated", "time_entry", input.id);
+    this.touch();
+  }
+
+  getEntry(entryId: string) {
+    const row = this.get<EntryListRow & { tags: string | null; tag_ids: string | null; approval_status: string }>(
+      `SELECT e.id, e.kind, e.description, p.name AS project_name, c.name AS client_name, p.color AS project_color,
+              (SELECT GROUP_CONCAT(t.name, ', ') FROM time_entry_tags et JOIN tags t ON t.id = et.tag_id WHERE et.time_entry_id = e.id) AS tags,
+              (SELECT GROUP_CONCAT(et.tag_id) FROM time_entry_tags et WHERE et.time_entry_id = e.id) AS tag_ids,
+              e.start_at, e.end_at, e.duration_seconds, e.is_billable, e.project_id, e.task_id, e.approval_status
+       FROM time_entries e
+       LEFT JOIN projects p ON p.id = e.project_id
+       LEFT JOIN clients c ON c.id = p.client_id
+       WHERE e.id = ? AND e.deleted_at IS NULL`,
+      [entryId],
+    );
+    if (!row) return undefined;
+    const tags = (row.tags ?? "")
+      .split(",")
+      .map((t) => t.trim())
+      .filter(Boolean);
+    const tagIds = (row.tag_ids ?? "")
+      .split(",")
+      .map((t) => t.trim())
+      .filter(Boolean);
+    return {
+      id: row.id,
+      desc: row.description || "(no description)",
+      project: row.project_name ?? "No project",
+      color: row.project_color ?? "#7d776e",
+      client: row.client_name ?? "",
+      tag: tags[0],
+      tags,
+      tagIds,
+      projectId: row.project_id,
+      taskId: row.task_id,
+      start: formatClock(row.start_at),
+      end: row.end_at ? formatClock(row.end_at) : "…",
+      startAt: row.start_at,
+      endAt: row.end_at,
+      dur: formatDuration(Number(row.duration_seconds)),
+      billable: row.is_billable === 1,
+      approval: row.approval_status,
+      kind: row.kind,
+    };
+  }
+
+  deleteEntry(entryId: string): void {
+    const current = this.get<{ approval_status: string }>(`SELECT approval_status FROM time_entries WHERE id = ?`, [entryId]);
+    if (!current) return;
+    if (current.approval_status === "locked") throw new Error("Locked entries cannot be deleted");
+    this.run(`UPDATE time_entries SET deleted_at = ? WHERE id = ?`, [this.now().toISOString(), entryId]);
+    this.audit("time_entry.deleted", "time_entry", entryId);
+    this.touch();
+  }
+
+  submitWeek(at = this.now()): number {
+    const weekStart = startOfLocalWeek(at);
+    const weekEnd = addDays(weekStart, 7);
+    const rows = this.all<{ id: string }>(
+      `SELECT id FROM time_entries
+       WHERE workspace_id = ? AND user_id = ? AND deleted_at IS NULL AND kind = 'work' AND end_at IS NOT NULL
+         AND approval_status = 'draft' AND start_at >= ? AND start_at < ?`,
+      [this.workspaceId, this.userId, weekStart.toISOString(), weekEnd.toISOString()],
+    );
+    for (const row of rows) this.setApprovalStatus(row.id, "submitted");
+    return rows.length;
+  }
+
+  calendarWeek(at = this.now()): { days: CalendarDay[]; weekTotal: number } {
+    const weekStart = startOfLocalWeek(at);
+    const rows = this.all<{
+      id: string;
+      description: string;
+      project_name: string | null;
+      color: string | null;
+      tag_name: string | null;
+      start_at: string;
+      end_at: string | null;
+      duration_seconds: number;
+    }>(
+      `SELECT e.id, e.description, p.name AS project_name, p.color, 
+              (SELECT t.name FROM time_entry_tags et JOIN tags t ON t.id = et.tag_id WHERE et.time_entry_id = e.id LIMIT 1) AS tag_name,
+              e.start_at, e.end_at, e.duration_seconds
+       FROM time_entries e
+       LEFT JOIN projects p ON p.id = e.project_id
+       WHERE e.workspace_id = ? AND e.user_id = ? AND e.deleted_at IS NULL AND e.kind = 'work' AND e.end_at IS NOT NULL
+         AND e.start_at >= ? AND e.start_at < ?
+       ORDER BY e.start_at`,
+      [this.workspaceId, this.userId, weekStart.toISOString(), addDays(weekStart, 7).toISOString()],
+    );
+    const days: CalendarDay[] = Array.from({ length: 7 }, (_, i) => {
+      const day = addDays(weekStart, i);
+      const key = localDayKey(day.toISOString());
+      return {
+        key,
+        label: day.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" }),
+        weekday: day.toLocaleDateString(undefined, { weekday: "short" }),
+        dateLabel: day.toLocaleDateString(undefined, { month: "short", day: "numeric" }),
+        totalSeconds: 0,
+        entries: [],
+      };
+    });
+    for (const row of rows) {
+      const key = localDayKey(row.start_at);
+      const day = days.find((d) => d.key === key);
+      if (!day) continue;
+      const start = new Date(row.start_at);
+      const end = new Date(row.end_at ?? row.start_at);
+      const startMin = start.getHours() * 60 + start.getMinutes();
+      const endMin = Math.max(startMin + 15, end.getHours() * 60 + end.getMinutes());
+      const duration = Number(row.duration_seconds);
+      day.totalSeconds += duration;
+      day.entries.push({
+        id: row.id,
+        desc: row.description || "(no description)",
+        project: row.project_name ?? "No project",
+        color: row.color ?? "#7d776e",
+        tag: row.tag_name ?? undefined,
+        startMin,
+        endMin,
+        dur: formatDuration(duration),
+      });
+    }
+    return { days, weekTotal: days.reduce((s, d) => s + d.totalSeconds, 0) };
   }
 
   private touch(): void {

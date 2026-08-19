@@ -17,6 +17,9 @@ export const IDS = {
   },
   tasks: {
     hifi: "task_hifi",
+    tokens: "task_tokens",
+    copy: "task_copy",
+    qa: "task_qa",
   },
   tags: {
     design: "tag_design",

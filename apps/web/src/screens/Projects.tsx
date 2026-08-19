@@ -1,9 +1,11 @@
 import { useState } from "react";
 import { theme } from "../theme";
 import { useStore, useStoreRevision } from "../hooks/useClockinator";
-import type { ProjectRow } from "../types";
+import type { ProjectDraft, ProjectRow } from "../types";
 import { btn, card, fieldStyle, pagePad } from "../components/ui";
 import { toCsv, downloadTextFile } from "../domain/reports";
+import { Modal, labelStyle } from "../components/Modal";
+import { ColorDots } from "../components/EntryEditor";
 
 const COLS = "32px minmax(200px,2fr) 1.2fr 0.8fr 1.4fr 0.7fr 0.8fr 44px";
 
@@ -32,9 +34,10 @@ function Header() {
   );
 }
 
-function Row({ project, onToggleFavorite }: { project: ProjectRow; onToggleFavorite: () => void }) {
+function Row({ project, onToggleFavorite, onEdit }: { project: ProjectRow; onToggleFavorite: () => void; onEdit: () => void }) {
   return (
     <div
+      onClick={onEdit}
       style={{
         display: "grid",
         gridTemplateColumns: COLS,
@@ -42,6 +45,7 @@ function Row({ project, onToggleFavorite }: { project: ProjectRow; onToggleFavor
         alignItems: "center",
         padding: "11px 18px",
         borderTop: `1px solid ${theme.border}`,
+        cursor: "pointer",
       }}
     >
       <span style={{ width: 9, height: 9, borderRadius: "50%", background: project.color, justifySelf: "center" }} />
@@ -72,7 +76,10 @@ function Row({ project, onToggleFavorite }: { project: ProjectRow; onToggleFavor
       <span style={{ fontSize: 13, color: theme.textMuted, textTransform: "capitalize" }}>{project.access}</span>
 
       <button
-        onClick={onToggleFavorite}
+        onClick={(e) => {
+          e.stopPropagation();
+          onToggleFavorite();
+        }}
         title={project.favorite ? "Unfavorite" : "Favorite"}
         style={{ background: "none", border: "none", cursor: "pointer", padding: 4, lineHeight: 0, color: project.favorite ? theme.accent : theme.textFaint }}
       >
@@ -94,6 +101,7 @@ export function Projects() {
   const [client, setClient] = useState("all");
   const [access, setAccess] = useState("all");
   const [query, setQuery] = useState("");
+  const [draft, setDraft] = useState<ProjectRow | "new" | null>(null);
 
   const visible = rows.filter((row) => {
     if (filter === "favorites" && !row.favorite) return false;
@@ -126,13 +134,7 @@ export function Projects() {
     <div style={pagePad}>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 14 }}>
         <div style={{ fontSize: 22, fontWeight: 700 }}>Projects</div>
-        <button
-          onClick={() => {
-            const name = window.prompt("Project name");
-            if (name?.trim()) store.createProject(name.trim());
-          }}
-          style={btn(theme.accent, theme.accentInk)}
-        >
+        <button onClick={() => setDraft("new")} style={btn(theme.accent, theme.accentInk)}>
           + New project
         </button>
       </div>
@@ -199,11 +201,116 @@ export function Projects() {
             onToggleFavorite={() => {
               if (p.id) store.setProjectFavorite(p.id, !p.favorite);
             }}
+            onEdit={() => setDraft(p)}
           />
         ))}
         {visible.length === 0 && (
           <div style={{ padding: "28px 18px", textAlign: "center", color: theme.textMuted, fontSize: 13 }}>No projects match these filters.</div>
         )}
+      </div>
+      {draft && (
+        <Modal title={draft === "new" ? "New project" : "Edit project"} onClose={() => setDraft(null)}>
+          <ProjectForm
+            project={draft === "new" ? undefined : draft}
+            clients={clients}
+            onCancel={() => setDraft(null)}
+            onSave={(input) => {
+              if (draft === "new") store.createProject(input);
+              else if (draft.id) store.updateProject(draft.id, input);
+              setDraft(null);
+            }}
+          />
+        </Modal>
+      )}
+    </div>
+  );
+}
+
+function ProjectForm({
+  project,
+  clients,
+  onSave,
+  onCancel,
+}: {
+  project?: ProjectRow;
+  clients: Array<{ id: string; name: string }>;
+  onSave: (input: ProjectDraft) => void;
+  onCancel: () => void;
+}) {
+  const [name, setName] = useState(project?.name ?? "");
+  const [clientId, setClientId] = useState(project?.clientId ?? "");
+  const [color, setColor] = useState(project?.color ?? "#5bbd7e");
+  const [isBillable, setIsBillable] = useState(project?.isBillable ?? true);
+  const [billableRate, setBillableRate] = useState(project?.billableRate ?? "");
+  const [estimatedHours, setEstimatedHours] = useState(project?.estimatedHours ?? "");
+  const [access, setAccess] = useState<"public" | "private">(project?.access ?? "public");
+  const [status, setStatus] = useState<"active" | "on_hold" | "archived">((project?.rawStatus as "active" | "on_hold" | "archived") ?? "active");
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+      <label>
+        <span style={labelStyle}>NAME</span>
+        <input value={name} onChange={(e) => setName(e.target.value)} style={{ ...fieldStyle, width: "100%" }} />
+      </label>
+      <label>
+        <span style={labelStyle}>CLIENT</span>
+        <select value={clientId} onChange={(e) => setClientId(e.target.value)} style={{ ...fieldStyle, width: "100%" }}>
+          <option value="">No client</option>
+          {clients.map((c) => (
+            <option key={c.id} value={c.id}>
+              {c.name}
+            </option>
+          ))}
+        </select>
+      </label>
+      <div>
+        <span style={labelStyle}>COLOR</span>
+        <ColorDots value={color} onChange={setColor} />
+      </div>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+        <label>
+          <span style={labelStyle}>RATE</span>
+          <input value={billableRate} onChange={(e) => setBillableRate(e.target.value)} placeholder="160.00" style={{ ...fieldStyle, width: "100%" }} />
+        </label>
+        <label>
+          <span style={labelStyle}>ESTIMATE (h)</span>
+          <input value={estimatedHours} onChange={(e) => setEstimatedHours(e.target.value)} placeholder="40" style={{ ...fieldStyle, width: "100%" }} />
+        </label>
+      </div>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10 }}>
+        <label>
+          <span style={labelStyle}>ACCESS</span>
+          <select value={access} onChange={(e) => setAccess(e.target.value as "public" | "private")} style={{ ...fieldStyle, width: "100%" }}>
+            <option value="public">Public</option>
+            <option value="private">Private</option>
+          </select>
+        </label>
+        <label>
+          <span style={labelStyle}>STATUS</span>
+          <select value={status} onChange={(e) => setStatus(e.target.value as "active" | "on_hold" | "archived")} style={{ ...fieldStyle, width: "100%" }}>
+            <option value="active">Active</option>
+            <option value="on_hold">On hold</option>
+            <option value="archived">Archived</option>
+          </select>
+        </label>
+        <label style={{ display: "flex", alignItems: "end", gap: 8, fontSize: 13, paddingBottom: 8 }}>
+          <input type="checkbox" checked={isBillable} onChange={(e) => setIsBillable(e.target.checked)} />
+          Billable
+        </label>
+      </div>
+      <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
+        <button onClick={onCancel} style={btn(theme.surfaceAlt, theme.text)}>
+          Cancel
+        </button>
+        <button
+          onClick={() => {
+            if (!name.trim()) return;
+            onSave({ name, clientId, color, isBillable, billableRate, estimatedHours, access, status });
+          }}
+          style={btn(theme.accent, theme.accentInk)}
+        >
+          Save
+        </button>
       </div>
     </div>
   );

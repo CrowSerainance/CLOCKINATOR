@@ -4,7 +4,7 @@ Read this before changing anything. Short rules live in [`AGENTS.md`](./AGENTS.m
 
 **Workspace:** `C:\Clockify`  
 **Git repo:** `C:\Clockify\CLOCKINATOR-main` (branch `main`)  
-**Updated:** 17 Aug 2026 — Time Tracker / Reports / Projects were visually empty vs `design/references/` (Clockify screenshots, gitignored). Tracker now lists a rolling 14 days, demo seed fills ~4 weeks, Timesheet / Approvals / Audit are live, Reports has a day chart + donut. Tokens stay Clockinator; do not copy Clockify chrome.
+**Updated:** 19 Aug 2026 — Filled the missing core modules vs `design/references/` and `design/Clockinator.html`: Calendar week grid, Clients, Tags, entry edit/delete, project form, Reports Detailed + group-by description, Timesheet submit. Still Clockinator tokens — not Clockify chrome.
 
 This is a **Clockify-inspired self-hosted / local-first time-ops product**, not a Clockify clone. Do not copy vendor UI, chrome, copy, or implementation. Match *capabilities* using Clockinator’s own design.
 
@@ -39,7 +39,7 @@ Desktop path (not scaffolded): Tauri or Electron wrapping this renderer, swappin
 ### Non-goals (until the core loop is solid)
 
 - Pixel-parity with Clockify
-- Calendar, Dashboard, Kiosk, GPS, screenshots, SSO/SCIM, scheduling, time off, expenses
+- Dashboard, Kiosk, GPS, screenshots, SSO/SCIM, scheduling, time off, expenses
 - Publishing Clockify screenshots (`design/references/` is gitignored)
 
 Invoice **tables** exist in SQLite. Invoice **UI** is not started.
@@ -61,8 +61,11 @@ CLOCKINATOR-main/
     src/hooks/useClockinator.tsx
     src/screens/TimeTracker.tsx
     src/screens/Timesheet.tsx
+    src/screens/Calendar.tsx
     src/screens/Reports.tsx
     src/screens/Projects.tsx
+    src/screens/Clients.tsx
+    src/screens/Tags.tsx
     src/screens/Approvals.tsx
     src/screens/AuditLog.tsx
   apps/api/timeops_core/       # Python in-memory domain (tests only for now)
@@ -87,12 +90,13 @@ CLOCKINATOR-main/
 | One open session per user | Yes — partial unique index |
 | Rate hierarchy task → project → workspace | Yes — snapshotted on the session/entry |
 | Historic rates | Yes — `rate_history`; used for backdated resolve |
-| Time Tracker composer + live bar | Yes — tags, manual add, 14-day history, search |
-| Projects list / favorite / create (prompt) | Yes — status/client/access/name filters + CSV |
-| Reports range + group-by project | Yes — last-30 default, stacked day bars, donut |
-| CSV export | Yes — local download |
-| PDF export | Yes — minimal Helvetica text PDF (no PDF kit) |
-| Timesheet week grid | Yes — project × day from SQLite |
+| Time Tracker composer + live bar | Yes — tags, tasks, manual add, 14-day history, row edit |
+| Projects list / favorite / create | Yes — form (client, color, rate, estimate, access) + filters + CSV |
+| Clients / Tags | Yes — list + create |
+| Reports range + group-by | Yes — Summary + Detailed, project/description grouping, bars + donut |
+| CSV / PDF export | Yes |
+| Timesheet week grid | Yes — click empty cell to add; submit week to approvals |
+| Calendar week grid | Yes — positioned blocks 07:00–20:00, add/edit |
 | Approvals | Yes — submit / approve / reject on `approval_status` |
 | Audit log screen | Yes — recent `audit_logs` |
 | Invoices / custom fields | Schema only |
@@ -107,14 +111,15 @@ CLOCKINATOR-main/
 
 | Reference | Clockinator now | Next |
 |---|---|---|
-| Time Tracker composer + START | Wired + tags + manual | Edit completed rows; show break rows |
-| Day groups + week total | Rolling 14 days; week total is Mon–Sun | Calendar week view (later) |
+| Time Tracker composer + START | Wired + tags + tasks + manual + row edit | Break rows in the list |
+| Day groups + week total | Rolling 14 days; week total is Mon–Sun | — |
 | Pause / split / breaks | Wired | Show break rows in the tracker list |
-| Projects table + filters | Live + filter bar + export | Edit modal (create is still `prompt`) |
-| Reports summary | Totals + stacked day bars + donut + CSV/PDF | Group-by description; Detailed/Weekly tabs |
-| Timesheet week grid | Live | Submit week as a batch |
-| Approvals queue | Live | Comments / lock period |
-| Calendar | Absent | After timesheet polish |
+| Projects table + filters | Live form + filter bar + export | Member access rules |
+| Clients / Tags | Live list + create | Archive / merge |
+| Reports summary | Totals + stacked day bars + donut + Detailed + group-by | Weekly tab, rounding |
+| Timesheet week grid | Live + submit week | Lock period |
+| Approvals queue | Live | Comments |
+| Calendar | Week grid + add/edit | Day view, drag/drop |
 | Paid 49-feature grid | Schema footholds: historic rates, invoices, custom fields, audit | Do not start SSO/GPS/kiosk |
 
 ---
@@ -164,20 +169,13 @@ Python **3.12+**. Web: React 18, Vite 5, TypeScript, sql.js, **no router, no UI 
 
 - Local SQLite + IndexedDB persist (`src/db/*`, `db/migrations/001_init.sql`)
 - `useTimer` + Time Tracker start/pause/resume/stop/split/break
-- Dense demo history + rolling 14-day tracker list, tag picker, manual add
-- Reports v1 + stacked day chart + donut + CSV/PDF
-- Projects filters / favorite / prompt-create / CSV
-- Timesheet week grid
+- Dense demo history + rolling 14-day tracker list, tag picker, manual add, row edit
+- Reports Summary + Detailed + group-by + stacked day chart + donut + CSV/PDF
+- Projects form (client/color/rate/estimate/access) + filters + CSV
+- Clients + Tags screens
+- Timesheet week grid + submit week
+- Calendar week grid
 - Approvals submit/approve/reject + Audit log list
-
-### Stream E2 — Projects CRUD (real form)
-
-Replace `window.prompt`. Fields: name, client, color, billable rate (writes `rate_history`), estimate, access.  
-**Touch:** `screens/Projects.tsx`, `store.ts`.
-
-### Stream H — Entry edit
-
-Edit description/project/tags on completed rows; show break segments in the tracker list.
 
 ### Stream I — Native desktop adapter
 
@@ -189,7 +187,7 @@ Only after local-first is boringly solid. Optional FastAPI wrapping Python or a 
 
 ### Do not start
 
-Calendar, kiosk, GPS, SSO, invoicing UI, Clockify-identical chrome.
+Dashboard, kiosk, GPS, SSO, invoicing UI, Clockify-identical chrome.
 
 ---
 
@@ -230,7 +228,7 @@ Elapsed work = sum of completed work durations + live work period. Break clock i
 - Python domain has **no** pause/split/break. TS is ahead. Do not “fix” the UI by calling Python.
 - `RunningBar` demo (`useState(2537)`) was removed; do not bring it back.
 - Project tracked hours are **real sums**, not the old mockup’s 68.2h fixtures.
-- `window.prompt` for new projects is a stopgap.
+- `window.prompt` for new projects is gone; use the project form.
 - Time Tracker lists the **last 14 days**, not only Mon–Sun. Week total is still the current calendar week. The empty-looking tracker was this filter plus a 5-row seed.
 - `ensureDenseDemo` inserts weekday history with `INSERT OR IGNORE` on every boot. Do not treat those `demo_YYYYMMDD_*` ids as user data when writing migrations.
 
@@ -249,8 +247,11 @@ Elapsed work = sum of completed work durations + live work period. Break clock i
 | Hook | `apps/web/src/hooks/useTimer.ts` |
 | Time Tracker | `apps/web/src/screens/TimeTracker.tsx` |
 | Timesheet | `apps/web/src/screens/Timesheet.tsx` |
+| Calendar | `apps/web/src/screens/Calendar.tsx` |
 | Reports | `apps/web/src/screens/Reports.tsx` |
 | Projects | `apps/web/src/screens/Projects.tsx` |
+| Clients | `apps/web/src/screens/Clients.tsx` |
+| Tags | `apps/web/src/screens/Tags.tsx` |
 | Approvals | `apps/web/src/screens/Approvals.tsx` |
 | Audit | `apps/web/src/screens/AuditLog.tsx` |
 | Seed / demo week | `apps/web/src/db/seed.ts` (`ensureDenseDemo`) |
