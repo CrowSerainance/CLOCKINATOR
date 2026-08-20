@@ -33,6 +33,7 @@ export function useTimer() {
     tags: store.listTags(),
     groups: week.groups,
     weekTotal: week.weekTotal,
+    weekTotalSeconds: week.weekTotalSeconds,
     start: store.start.bind(store),
     pause: store.pause.bind(store),
     resume: store.resume.bind(store),

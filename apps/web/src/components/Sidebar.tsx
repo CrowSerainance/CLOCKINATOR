@@ -19,6 +19,9 @@ const clockIcon = (
 const gridIcon = strokeIcon("M4 4h7v7H4zM13 4h7v7h-7zM4 13h7v7H4zM13 13h7v7h-7z");
 const chartIcon = strokeIcon("M4 19V9M10 19V5M16 19v-8M20 19H3");
 const folderIcon = strokeIcon("M3 7h6l2 2h10v10H3z");
+const usersIcon = strokeIcon("M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2M9 7a4 4 0 1 0 0-8 4 4 0 0 0 0 8z");
+const tagIcon = strokeIcon("M20.6 13.4 12 22l-9-9 8.6-8.6a2 2 0 0 1 1.4-.4H19a2 2 0 0 1 2 2v6.4a2 2 0 0 1-.4 1.4z");
+const calIcon = strokeIcon("M4 7h16M7 3v4M17 3v4M5 11h14v10H5z");
 const checkIcon = strokeIcon("M9 11l3 3 8-8M5 19h14");
 const listIcon = strokeIcon("M8 6h12M8 12h12M8 18h12M4 6h.01M4 12h.01M4 18h.01");
 
@@ -32,8 +35,11 @@ interface NavItem {
 const NAV: NavItem[] = [
   { id: "tracker", label: "Time Tracker", group: "TRACK", icon: clockIcon },
   { id: "timesheet", label: "Timesheet", group: "TRACK", icon: gridIcon },
+  { id: "calendar", label: "Calendar", group: "TRACK", icon: calIcon },
   { id: "reports", label: "Reports", group: "ANALYZE", icon: chartIcon },
   { id: "projects", label: "Projects", group: "MANAGE", icon: folderIcon },
+  { id: "clients", label: "Clients", group: "MANAGE", icon: usersIcon },
+  { id: "tags", label: "Tags", group: "MANAGE", icon: tagIcon },
   { id: "approvals", label: "Approvals", group: "REVIEW", icon: checkIcon },
   { id: "audit", label: "Audit Log", group: "REVIEW", icon: listIcon },
 ];

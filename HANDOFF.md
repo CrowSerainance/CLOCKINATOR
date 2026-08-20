@@ -4,7 +4,7 @@ Read this before changing anything. Short rules live in [`AGENTS.md`](./AGENTS.m
 
 **Workspace:** `C:\Clockify`  
 **Git repo:** `C:\Clockify\CLOCKINATOR-main` (branch `main`)  
-**Updated:** 17 Aug 2026 — Time Tracker / Reports / Projects were visually empty vs `design/references/` (Clockify screenshots, gitignored). Tracker now lists a rolling 14 days, demo seed fills ~4 weeks, Timesheet / Approvals / Audit are live, Reports has a day chart + donut. Tokens stay Clockinator; do not copy Clockify chrome.
+**Updated:** 20 Aug 2026 — Stream J slice: break rows on tracker, timesheet lock/unlock week, task rate editor on project form, decimal duration toggle (localStorage), labor cost + profit on Reports. Grid statuses below updated. Still deferred: invoice UI, custom fields, CSV import, rounding, favorite entries, bulk edit.
 
 This is a **Clockify-inspired self-hosted / local-first time-ops product**, not a Clockify clone. Do not copy vendor UI, chrome, copy, or implementation. Match *capabilities* using Clockinator’s own design.
 
@@ -36,13 +36,15 @@ Python `apps/api/timeops_core` is the original in-memory rules sketch. Keep its 
 
 Desktop path (not scaffolded): Tauri or Electron wrapping this renderer, swapping `apps/web/src/db/client.ts` for a native SQLite file adapter that executes the same migrations.
 
-### Non-goals (until the core loop is solid)
+### Non-goals (cloud / hardware / chrome — do not start)
 
-- Pixel-parity with Clockify
-- Calendar, Dashboard, Kiosk, GPS, screenshots, SSO/SCIM, scheduling, time off, expenses
+- Pixel-parity with Clockify; Clockify-identical chrome
+- Dashboard, Kiosk, GPS, screenshots, photo kiosk, QR kiosk
+- SSO / SCIM / custom subdomain / control accounts / QuickBooks / data regions
+- Scheduling, forecasting, time off, expenses (until core local loop is boringly solid)
 - Publishing Clockify screenshots (`design/references/` is gitignored)
 
-Invoice **tables** exist in SQLite. Invoice **UI** is not started.
+Invoice **tables** exist in SQLite. Invoice **UI** is Stream J (later local), not a forever skip.
 
 ---
 
@@ -61,8 +63,11 @@ CLOCKINATOR-main/
     src/hooks/useClockinator.tsx
     src/screens/TimeTracker.tsx
     src/screens/Timesheet.tsx
+    src/screens/Calendar.tsx
     src/screens/Reports.tsx
     src/screens/Projects.tsx
+    src/screens/Clients.tsx
+    src/screens/Tags.tsx
     src/screens/Approvals.tsx
     src/screens/AuditLog.tsx
   apps/api/timeops_core/       # Python in-memory domain (tests only for now)
@@ -83,16 +88,19 @@ CLOCKINATOR-main/
 | Timer start / stop | Yes |
 | Pause / resume | Yes — closes/opens work segments on one session |
 | Split | Yes — `source='split'`, `parent_entry_id` |
-| Breaks | Yes — `time_entries.kind='break'`, session `on_break` |
+| Breaks | Yes — timer + listed on tracker; day/week totals are work-only |
 | One open session per user | Yes — partial unique index |
 | Rate hierarchy task → project → workspace | Yes — snapshotted on the session/entry |
 | Historic rates | Yes — `rate_history`; used for backdated resolve |
-| Time Tracker composer + live bar | Yes — tags, manual add, 14-day history, search |
-| Projects list / favorite / create (prompt) | Yes — status/client/access/name filters + CSV |
-| Reports range + group-by project | Yes — last-30 default, stacked day bars, donut |
-| CSV export | Yes — local download |
-| PDF export | Yes — minimal Helvetica text PDF (no PDF kit) |
-| Timesheet week grid | Yes — project × day from SQLite |
+| Task rate editor | Yes — project form |
+| Decimal duration toggle | Yes — localStorage preference |
+| Time Tracker composer + live bar | Yes — tags, tasks, manual add, 14-day history, row edit, breaks |
+| Projects list / favorite / create | Yes — form (client, color, rate, estimate, access, tasks) + filters + CSV |
+| Clients / Tags | Yes — list + create |
+| Reports range + group-by | Yes — Summary + Detailed, labor/profit, project/description grouping, bars + donut |
+| CSV / PDF export | Yes |
+| Timesheet week grid | Yes — click empty cell to add; submit week; lock/unlock week |
+| Calendar week grid | Yes — positioned blocks 07:00–20:00, add/edit |
 | Approvals | Yes — submit / approve / reject on `approval_status` |
 | Audit log screen | Yes — recent `audit_logs` |
 | Invoices / custom fields | Schema only |
@@ -103,19 +111,96 @@ CLOCKINATOR-main/
 
 `TimeOpsService`: start/stop (no pause/split/break), manual entries, weekly summary, monthly income, CSV, project summaries, audit for timer + project status. **10 tests passing.** In-memory only.
 
-### Clockify reference → Clockinator
+### Clockify screen reference → Clockinator
 
 | Reference | Clockinator now | Next |
 |---|---|---|
-| Time Tracker composer + START | Wired + tags + manual | Edit completed rows; show break rows |
-| Day groups + week total | Rolling 14 days; week total is Mon–Sun | Calendar week view (later) |
-| Pause / split / breaks | Wired | Show break rows in the tracker list |
-| Projects table + filters | Live + filter bar + export | Edit modal (create is still `prompt`) |
-| Reports summary | Totals + stacked day bars + donut + CSV/PDF | Group-by description; Detailed/Weekly tabs |
-| Timesheet week grid | Live | Submit week as a batch |
-| Approvals queue | Live | Comments / lock period |
-| Calendar | Absent | After timesheet polish |
-| Paid 49-feature grid | Schema footholds: historic rates, invoices, custom fields, audit | Do not start SSO/GPS/kiosk |
+| Time Tracker composer + START | Wired + tags + tasks + manual + row edit + break rows | — |
+| Day groups + week total | Rolling 14 days; week total is Mon–Sun (work only) | — |
+| Pause / split / breaks | Wired; completed breaks listed on tracker | — |
+| Projects table + filters | Live form + task rates + filter bar + export | Member access rules |
+| Clients / Tags | Live list + create | Archive / merge |
+| Reports summary | Totals + labor/profit + decimal toggle + charts + Detailed | Weekly tab, rounding |
+| Timesheet week grid | Live + submit week + lock/unlock week | — |
+| Approvals queue | Live | Comments |
+| Calendar | Week grid + add/edit | Day view, drag/drop |
+
+### Clockify paid 49-feature grid → Clockinator (offline audit)
+
+**Offline executable** = capability that can run entirely in the local-first web app (`apps/web` + IndexedDB SQLite). Source of truth is the **web SQLite UI**, not Python `TimeOpsService`.
+
+Legend: **Done** = usable in UI · **Engine** = rules/snapshots work, thin or no admin UI · **Schema** = tables/columns exist, no UI/enforcement · **Partial** = some UI but not the Clockify-shaped feature · **No** = absent · **Skip** = cloud/hardware/enterprise — not a local-first goal
+
+Rough count excluding Skip: ~12 Done, ~10 Engine/Schema/Partial, ~8 No. Skip ~19.
+
+#### FREE (17)
+
+| Feature | Status | Notes |
+|---|---|---|
+| Add time for others | Schema | `created_by_user_id`, `source='manager_manual'`; single seeded user; no UI |
+| Hide time and pages | No | |
+| Required fields | Schema | `custom_field_definitions.required`; no composer enforcement |
+| Bulk edit | No | Per-row `EntryEditor` only |
+| Kiosk | Skip | Explicit non-goal |
+| Decimal format | Done | Toggle `h:mm:ss` / `0.00h` on Tracker, Timesheet, Reports (`preferences.ts` + localStorage) |
+| Time audit | Partial | `AuditLog.tsx` lists `audit_logs`. Not Clockify discrepancy/override report; no IP/UA |
+| Customize exports | Partial | Fixed CSV/PDF columns; no picker / XLSX / share links |
+| Project templates | No | Python `template_name` only; no SQLite column |
+| Historic rates | Engine | `rate_history` + `historicRateAt` on write; no history admin UI |
+| Import timesheets | Schema | `source='import'` allowed; no importer |
+| Break | Done | Timer bar + completed break rows on Time Tracker (excluded from work totals) |
+| Favorite entries | No | Favorite **projects** yes (`is_favorite`) — different feature |
+| Split time | Done | Running session Split |
+| Billability & billable rates | Done | `$` toggle; task → project → workspace |
+| Export & share data | Partial | Local CSV/PDF; no share/print/XLSX |
+| Time estimates | Partial | `projects.estimated_hours` + progress bar; no report overlay |
+
+#### BASIC (12)
+
+| Feature | Status | Notes |
+|---|---|---|
+| Time off | Skip | Non-goal until core is solid |
+| Invoicing | Schema | `invoices` + `invoice_lines`; UI still Stream J |
+| Approval | Partial | Submit/approve/reject; no comments, withdrawal, manager queue polish |
+| Lock timesheet | Done | Timesheet **Lock week** / **Unlock**; `approval_status='locked'` blocks edit/delete |
+| Targets & reminders | No | |
+| Manager role | Schema | `users.role`; seed is owner only; no role UI |
+| Task rates | Done | Project form: edit/add tasks with billable rates + `rate_history` |
+| Rounding | No | |
+| QuickBooks | Skip | Cloud integration |
+| Recurring invoices | No | |
+| Attendance report | No | |
+| QR code (kiosk) | Skip | |
+
+#### STANDARD (15)
+
+| Feature | Status | Notes |
+|---|---|---|
+| Scheduling | Skip | Non-goal |
+| Forecasting | Skip | Non-goal |
+| Expenses | Skip | Non-goal |
+| Labor cost & profit | Done | Reports show Labor $ + Profit $ from `cost_rate_snapshot`; CSV includes `cost_rate` |
+| Budget & estimates | Partial | Hours progress, not a full budget/profit entity |
+| Custom fields | Schema | `custom_field_definitions` + `custom_field_values` |
+| User fields | Schema | Same tables; `target` includes `user` |
+| Scheduled reports | Skip | Needs scheduler/server |
+| Alerts | Skip | Same |
+| Force timer | No | |
+| GPS tracking | Skip | |
+| Screenshots | Skip | |
+| Photo capture (kiosk) | Skip | |
+| Multiple currencies | Schema | `workspaces.currency` default USD; no FX UI |
+| Data regions | Skip | Cloud |
+
+#### PRO (5)
+
+| Feature | Status | Notes |
+|---|---|---|
+| Single sign-on (SSO) | Skip | |
+| Custom subdomain | Skip | |
+| SCIM | Skip | |
+| Control accounts | Skip | |
+| Audit log | Partial | Thin list; no search/export/filters |
 
 ---
 
@@ -164,20 +249,28 @@ Python **3.12+**. Web: React 18, Vite 5, TypeScript, sql.js, **no router, no UI 
 
 - Local SQLite + IndexedDB persist (`src/db/*`, `db/migrations/001_init.sql`)
 - `useTimer` + Time Tracker start/pause/resume/stop/split/break
-- Dense demo history + rolling 14-day tracker list, tag picker, manual add
-- Reports v1 + stacked day chart + donut + CSV/PDF
-- Projects filters / favorite / prompt-create / CSV
-- Timesheet week grid
+- Dense demo history + rolling 14-day tracker list, tag picker, manual add, row edit
+- Break rows on Time Tracker (work totals exclude breaks)
+- Reports Summary + Detailed + group-by + stacked day chart + donut + CSV/PDF + labor/profit
+- Decimal duration toggle (`h:mm:ss` / `0.00h`) on Tracker / Timesheet / Reports
+- Projects form (client/color/rate/estimate/access) + **task rate editor** + filters + CSV
+- Clients + Tags screens
+- Timesheet week grid + submit week + **lock/unlock week**
+- Calendar week grid
 - Approvals submit/approve/reject + Audit log list
 
-### Stream E2 — Projects CRUD (real form)
+### Stream J — Local grid gaps (claim one slice)
 
-Replace `window.prompt`. Fields: name, client, color, billable rate (writes `rate_history`), estimate, access.  
-**Touch:** `screens/Projects.tsx`, `store.ts`.
+Shipped this pass: break rows, lock week, task rates, decimal format, labor/profit on reports.
 
-### Stream H — Entry edit
+Still open (highest leverage first):
 
-Edit description/project/tags on completed rows; show break segments in the tracker list.
+1. Invoice UI (draft from approved billable entries) — tables exist
+2. Custom/required fields on composer
+3. CSV timesheet import
+4. Rounding (report/export duration rounding rules)
+5. Favorite time-entry presets (not project stars)
+6. Bulk edit
 
 ### Stream I — Native desktop adapter
 
@@ -189,7 +282,7 @@ Only after local-first is boringly solid. Optional FastAPI wrapping Python or a 
 
 ### Do not start
 
-Calendar, kiosk, GPS, SSO, invoicing UI, Clockify-identical chrome.
+Dashboard, kiosk, GPS, screenshots, SSO/SCIM, QuickBooks, data regions, Clockify-identical chrome. (Invoice UI is Stream J, not banned.)
 
 ---
 
@@ -230,7 +323,7 @@ Elapsed work = sum of completed work durations + live work period. Break clock i
 - Python domain has **no** pause/split/break. TS is ahead. Do not “fix” the UI by calling Python.
 - `RunningBar` demo (`useState(2537)`) was removed; do not bring it back.
 - Project tracked hours are **real sums**, not the old mockup’s 68.2h fixtures.
-- `window.prompt` for new projects is a stopgap.
+- `window.prompt` for new projects is gone; use the project form.
 - Time Tracker lists the **last 14 days**, not only Mon–Sun. Week total is still the current calendar week. The empty-looking tracker was this filter plus a 5-row seed.
 - `ensureDenseDemo` inserts weekday history with `INSERT OR IGNORE` on every boot. Do not treat those `demo_YYYYMMDD_*` ids as user data when writing migrations.
 
@@ -246,11 +339,15 @@ Elapsed work = sum of completed work durations + live work period. Break clock i
 | Timer rules | `apps/web/src/domain/timer.ts` |
 | Rate hierarchy | `apps/web/src/domain/rates.ts` |
 | CSV/PDF | `apps/web/src/domain/reports.ts` |
+| Duration display prefs | `apps/web/src/domain/preferences.ts`, `hooks/useDurationFormat.ts` |
 | Hook | `apps/web/src/hooks/useTimer.ts` |
 | Time Tracker | `apps/web/src/screens/TimeTracker.tsx` |
 | Timesheet | `apps/web/src/screens/Timesheet.tsx` |
+| Calendar | `apps/web/src/screens/Calendar.tsx` |
 | Reports | `apps/web/src/screens/Reports.tsx` |
 | Projects | `apps/web/src/screens/Projects.tsx` |
+| Clients | `apps/web/src/screens/Clients.tsx` |
+| Tags | `apps/web/src/screens/Tags.tsx` |
 | Approvals | `apps/web/src/screens/Approvals.tsx` |
 | Audit | `apps/web/src/screens/AuditLog.tsx` |
 | Seed / demo week | `apps/web/src/db/seed.ts` (`ensureDenseDemo`) |

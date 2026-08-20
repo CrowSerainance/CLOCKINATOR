@@ -1,20 +1,28 @@
 import { useState } from "react";
 import { theme } from "../theme";
 import { useStore, useStoreRevision } from "../hooks/useClockinator";
-import { addDays, formatDuration, startOfLocalWeek } from "../domain/duration";
+import { useDurationFormat } from "../hooks/useDurationFormat";
+import { formatDisplayDuration } from "../domain/preferences";
+import { addDays, startOfLocalWeek } from "../domain/duration";
 import { btn, card, pagePad } from "../components/ui";
+import { Modal } from "../components/Modal";
+import { EntryEditor } from "../components/EntryEditor";
 
 export function Timesheet() {
   const store = useStore();
   useStoreRevision();
+  const [durationFormat, setDurationFormat] = useDurationFormat();
   const [offset, setOffset] = useState(0);
+  const [draft, setDraft] = useState<{ date: string; start: string; end: string; projectId?: string | null } | null>(null);
   const weekStart = addDays(startOfLocalWeek(new Date()), offset * 7);
   const grid = store.timesheetWeek(weekStart);
+  const lock = store.weekLockState(weekStart);
   const COLS = `minmax(180px,1.4fr) repeat(7, 1fr) 90px`;
+  const fmt = (seconds: number) => formatDisplayDuration(seconds, durationFormat);
 
   return (
     <div style={pagePad}>
-      <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 16 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 16, flexWrap: "wrap" }}>
         <div style={{ fontSize: 22, fontWeight: 700 }}>Timesheet</div>
         <div style={{ fontSize: 13, color: theme.textMuted }}>
           {weekStart.toLocaleDateString(undefined, { month: "short", day: "numeric" })} –{" "}
@@ -30,9 +38,46 @@ export function Timesheet() {
           →
         </button>
         <div style={{ flex: 1 }} />
+        <button
+          onClick={() => setDurationFormat(durationFormat === "clock" ? "decimal" : "clock")}
+          style={btn(theme.surfaceAlt, theme.textMuted, { fontSize: 12 })}
+        >
+          {durationFormat === "clock" ? "h:mm:ss" : "0.00h"}
+        </button>
         <div className="mono" style={{ fontSize: 18, fontWeight: 700 }}>
-          {formatDuration(grid.weekTotal)}
+          {fmt(grid.weekTotal)}
         </div>
+        <button
+          onClick={() => {
+            const n = store.submitWeek(weekStart);
+            window.alert(n ? `Submitted ${n} draft entries.` : "No draft entries this week.");
+          }}
+          style={btn(theme.accent, theme.accentInk)}
+        >
+          Submit week
+        </button>
+        {lock.unlocked > 0 && (
+          <button
+            onClick={() => {
+              const n = store.lockWeek(weekStart);
+              window.alert(n ? `Locked ${n} entries.` : "Nothing to lock.");
+            }}
+            style={btn(theme.surfaceAlt, theme.text)}
+          >
+            Lock week
+          </button>
+        )}
+        {lock.locked > 0 && (
+          <button
+            onClick={() => {
+              const n = store.unlockWeek(weekStart);
+              window.alert(n ? `Unlocked ${n} entries (set to approved).` : "Nothing to unlock.");
+            }}
+            style={btn(theme.surfaceAlt, theme.textMuted)}
+          >
+            Unlock ({lock.locked})
+          </button>
+        )}
       </div>
 
       <div style={card}>
@@ -59,7 +104,7 @@ export function Timesheet() {
         </div>
         {grid.rows.map((row) => (
           <div
-            key={row.project}
+            key={row.projectId ?? row.project}
             style={{
               display: "grid",
               gridTemplateColumns: COLS,
@@ -76,12 +121,28 @@ export function Timesheet() {
               </span>
             </div>
             {row.cells.map((cell, i) => (
-              <span key={grid.days[i].key} className="mono" style={{ fontSize: 12, textAlign: "center", color: cell.seconds ? theme.text : theme.textFaint }}>
-                {cell.label}
-              </span>
+              <button
+                key={grid.days[i].key}
+                onClick={() => {
+                  if (!cell.seconds) {
+                    setDraft({ date: grid.days[i].key, start: "09:00", end: "10:00", projectId: row.projectId });
+                  }
+                }}
+                className="mono"
+                style={{
+                  fontSize: 12,
+                  textAlign: "center",
+                  color: cell.seconds ? theme.text : theme.textFaint,
+                  background: "none",
+                  border: "none",
+                  cursor: cell.seconds ? "default" : "pointer",
+                }}
+              >
+                {cell.seconds ? fmt(cell.seconds) : "—"}
+              </button>
             ))}
             <span className="mono" style={{ fontSize: 13, fontWeight: 600, textAlign: "right" }}>
-              {formatDuration(row.totalSeconds)}
+              {fmt(row.totalSeconds)}
             </span>
           </div>
         ))}
@@ -98,17 +159,22 @@ export function Timesheet() {
           <span style={{ fontSize: 12, fontWeight: 700, color: theme.textMuted }}>Day total</span>
           {grid.days.map((day) => (
             <span key={day.key} className="mono" style={{ fontSize: 12, textAlign: "center", fontWeight: 600 }}>
-              {day.totalSeconds ? formatDuration(day.totalSeconds) : "—"}
+              {day.totalSeconds ? fmt(day.totalSeconds) : "—"}
             </span>
           ))}
           <span className="mono" style={{ fontSize: 13, fontWeight: 700, textAlign: "right" }}>
-            {formatDuration(grid.weekTotal)}
+            {fmt(grid.weekTotal)}
           </span>
         </div>
         {grid.rows.length === 0 && (
-          <div style={{ padding: "28px 18px", color: theme.textMuted, fontSize: 13 }}>No completed work this week.</div>
+          <div style={{ padding: "28px 18px", color: theme.textMuted, fontSize: 13 }}>No completed work this week. Click + in Calendar or Tracker to add time.</div>
         )}
       </div>
+      {draft && (
+        <Modal title="Add time" onClose={() => setDraft(null)}>
+          <EntryEditor preset={draft} onClose={() => setDraft(null)} />
+        </Modal>
+      )}
     </div>
   );
 }

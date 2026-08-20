@@ -1,7 +1,9 @@
 import { useMemo, useState } from "react";
 import { theme } from "../theme";
 import { useStore, useStoreRevision } from "../hooks/useClockinator";
-import { addDays, formatDuration, formatHours, startOfLocalDay, startOfLocalWeek } from "../domain/duration";
+import { useDurationFormat } from "../hooks/useDurationFormat";
+import { formatDisplayDuration } from "../domain/preferences";
+import { addDays, formatHours, startOfLocalDay, startOfLocalWeek } from "../domain/duration";
 import { downloadBlob, downloadTextFile, textToPdf, toCsv } from "../domain/reports";
 import { btn, card, fieldStyle, pagePad } from "../components/ui";
 
@@ -10,13 +12,17 @@ type RangePreset = "week" | "last7" | "last30";
 export function Reports() {
   const store = useStore();
   useStoreRevision();
+  const [durationFormat, setDurationFormat] = useDurationFormat();
   const [preset, setPreset] = useState<RangePreset>("last30");
+  const [tab, setTab] = useState<"summary" | "detailed">("summary");
+  const [groupBy, setGroupBy] = useState<"project" | "description">("project");
   const [client, setClient] = useState("");
   const [project, setProject] = useState("");
   const range = useMemo(() => rangeFor(preset), [preset]);
   const report = store.report(range.from.toISOString(), range.to.toISOString());
   const clients = store.listClients();
   const projects = store.listActiveProjects();
+  const fmt = (seconds: number) => formatDisplayDuration(seconds, durationFormat);
 
   const groups = report.groups.filter((g) => {
     if (project && g.title !== project) return false;
@@ -24,12 +30,26 @@ export function Reports() {
     const match = projects.find((p) => p.name === g.title);
     return (match?.clientName ?? "") === client;
   });
-  const filteredSeconds = groups.reduce((s, g) => s + g.seconds, 0);
+  const grouped =
+    groupBy === "project"
+      ? groups
+      : (() => {
+          const map = new Map<string, { title: string; color: string; seconds: number }>();
+          for (const row of report.csvRows.filter((r) => r.kind === "work")) {
+            if (project && row.project !== project) continue;
+            const title = row.description || "(no description)";
+            const current = map.get(title) ?? { title, color: "#7d776e", seconds: 0 };
+            current.seconds += Number(row.duration_hours) * 3600;
+            map.set(title, current);
+          }
+          return [...map.values()].sort((a, b) => b.seconds - a.seconds);
+        })();
+  const filteredSeconds = grouped.reduce((s, g) => s + g.seconds, 0);
   const maxDay = Math.max(1, ...report.daily.map((d) => d.seconds));
 
   const exportCsv = () => {
     const csv = toCsv(
-      ["entry_id", "user", "project", "task", "tags", "description", "kind", "start_at", "end_at", "duration_hours", "billable", "billable_rate"],
+      ["entry_id", "user", "project", "task", "tags", "description", "kind", "start_at", "end_at", "duration_hours", "billable", "billable_rate", "cost_rate"],
       report.csvRows.map((row) => [
         row.entry_id,
         row.user_email,
@@ -43,6 +63,7 @@ export function Reports() {
         Number(row.duration_hours).toFixed(2),
         row.billable ? "true" : "false",
         row.billable_rate,
+        row.cost_rate,
       ]),
     );
     downloadTextFile(`clockinator-report.csv`, csv, "text/csv;charset=utf-8");
@@ -51,20 +72,27 @@ export function Reports() {
   const exportPdf = () => {
     const lines = [
       `Range: ${range.label}`,
-      `Total: ${formatDuration(report.totalSeconds)}   Billable: ${formatDuration(report.billableSeconds)}   Amount: $${report.amount.toFixed(2)}`,
+      `Total: ${fmt(report.totalSeconds)}   Billable: ${fmt(report.billableSeconds)}   Amount: $${report.amount.toFixed(2)}`,
+      `Labor: $${report.laborCost.toFixed(2)}   Profit: $${report.profit.toFixed(2)}`,
       "",
       "By project",
-      ...report.groups.map((g) => `${g.title.padEnd(32, " ")} ${formatDuration(g.seconds)}  (${formatHours(g.seconds)}h)`),
+      ...report.groups.map((g) => `${g.title.padEnd(32, " ")} ${fmt(g.seconds)}  (${formatHours(g.seconds)}h)`),
     ];
     downloadBlob("clockinator-report.pdf", textToPdf("Clockinator report", lines));
   };
 
-  const donut = donutGradient(groups);
+  const donut = donutGradient(grouped);
 
   return (
     <div style={pagePad}>
       <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 14, flexWrap: "wrap" }}>
-        <div style={{ fontSize: 22, fontWeight: 700, marginRight: 8 }}>Summary</div>
+        <div style={{ fontSize: 22, fontWeight: 700, marginRight: 8 }}>Reports</div>
+        <button onClick={() => setTab("summary")} style={btn(tab === "summary" ? theme.accent + "22" : "transparent", theme.text, { border: `1px solid ${tab === "summary" ? theme.accent + "55" : theme.border}` })}>
+          Summary
+        </button>
+        <button onClick={() => setTab("detailed")} style={btn(tab === "detailed" ? theme.accent + "22" : "transparent", theme.text, { border: `1px solid ${tab === "detailed" ? theme.accent + "55" : theme.border}` })}>
+          Detailed
+        </button>
         {(["week", "last7", "last30"] as const).map((key) => (
           <button
             key={key}
@@ -77,6 +105,12 @@ export function Reports() {
           </button>
         ))}
         <div style={{ flex: 1 }} />
+        <button
+          onClick={() => setDurationFormat(durationFormat === "clock" ? "decimal" : "clock")}
+          style={btn(theme.surfaceAlt, theme.textMuted, { fontSize: 12 })}
+        >
+          {durationFormat === "clock" ? "h:mm:ss" : "0.00h"}
+        </button>
         <span style={{ fontSize: 13, color: theme.textMuted }}>{range.label}</span>
         <button onClick={exportCsv} style={btn(theme.surfaceAlt, theme.text)}>
           Export CSV
@@ -116,6 +150,12 @@ export function Reports() {
             </option>
           ))}
         </select>
+        {tab === "summary" && (
+          <select value={groupBy} onChange={(e) => setGroupBy(e.target.value as "project" | "description")} style={fieldStyle}>
+            <option value="project">Group by project</option>
+            <option value="description">Group by description</option>
+          </select>
+        )}
         {(client || project) && (
           <button
             onClick={() => {
@@ -129,19 +169,21 @@ export function Reports() {
         )}
       </div>
 
-      <div style={{ fontSize: 28, fontWeight: 700, marginBottom: 4 }}>{formatDuration(report.totalSeconds)}</div>
+      <div style={{ fontSize: 28, fontWeight: 700, marginBottom: 4 }}>{fmt(report.totalSeconds)}</div>
       <div style={{ fontSize: 13, color: theme.textMuted, marginBottom: 16 }}>
-        Billable {formatDuration(report.billableSeconds)} · ${report.amount.toFixed(2)}
-        {filteredSeconds !== report.totalSeconds ? ` · Filtered ${formatDuration(filteredSeconds)}` : ""}
+        Billable {fmt(report.billableSeconds)} · ${report.amount.toFixed(2)} · Labor ${report.laborCost.toFixed(2)} · Profit ${report.profit.toFixed(2)}
+        {filteredSeconds !== report.totalSeconds ? ` · Filtered ${fmt(filteredSeconds)}` : ""}
       </div>
 
+      {tab === "summary" ? (
+      <>
       <div style={{ ...card, padding: "16px 18px 10px", marginBottom: 18 }}>
         <div style={{ fontSize: 12, fontWeight: 700, color: theme.textFaint, letterSpacing: ".06em", marginBottom: 12 }}>
           TIME BY DAY
         </div>
         <div style={{ display: "flex", alignItems: "flex-end", gap: 3, height: 160, overflowX: "auto" }}>
           {report.daily.map((day) => (
-            <div key={day.key} title={`${day.label} · ${formatDuration(day.seconds)}`} style={{ flex: "1 0 18px", minWidth: 14, height: "100%", display: "flex", flexDirection: "column", justifyContent: "flex-end" }}>
+            <div key={day.key} title={`${day.label} · ${fmt(day.seconds)}`} style={{ flex: "1 0 18px", minWidth: 14, height: "100%", display: "flex", flexDirection: "column", justifyContent: "flex-end" }}>
               <div style={{ display: "flex", flexDirection: "column-reverse", height: `${Math.max(4, (day.seconds / maxDay) * 100)}%`, borderRadius: 3, overflow: "hidden" }}>
                 {day.stacks.map((stack) => (
                   <div
@@ -170,7 +212,7 @@ export function Reports() {
             <span>DURATION</span>
             <span>SHARE</span>
           </div>
-          {groups.map((group) => (
+          {grouped.map((group) => (
             <div
               key={group.title}
               style={{ display: "grid", gridTemplateColumns: "1fr 120px 80px", gap: 16, padding: "12px 18px", borderTop: `1px solid ${theme.border}`, alignItems: "center" }}
@@ -179,13 +221,13 @@ export function Reports() {
                 <span style={{ width: 8, height: 8, borderRadius: "50%", background: group.color, flexShrink: 0 }} />
                 <span style={{ fontSize: 14, fontWeight: 600 }}>{group.title}</span>
               </div>
-              <span className="mono" style={{ fontSize: 13 }}>{formatDuration(group.seconds)}</span>
+              <span className="mono" style={{ fontSize: 13 }}>{fmt(group.seconds)}</span>
               <span className="mono" style={{ fontSize: 13, color: theme.textMuted }}>
                 {report.totalSeconds ? Math.round((group.seconds / report.totalSeconds) * 100) : 0}%
               </span>
             </div>
           ))}
-          {groups.length === 0 && (
+          {grouped.length === 0 && (
             <div style={{ padding: "28px 18px", color: theme.textMuted, fontSize: 13 }}>No completed entries in this range.</div>
           )}
         </div>
@@ -215,12 +257,12 @@ export function Reports() {
                 gap: 2,
               }}
             >
-              <span className="mono" style={{ fontSize: 13, fontWeight: 700 }}>{formatDuration(report.totalSeconds)}</span>
+              <span className="mono" style={{ fontSize: 13, fontWeight: 700 }}>{fmt(report.totalSeconds)}</span>
               <span style={{ fontSize: 10, color: theme.textFaint }}>TOTAL</span>
             </div>
           </div>
           <div style={{ width: "100%", display: "flex", flexDirection: "column", gap: 6 }}>
-            {groups.slice(0, 6).map((group) => (
+            {grouped.slice(0, 6).map((group) => (
               <div key={group.title} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12, color: theme.textMuted }}>
                 <span style={{ width: 8, height: 8, borderRadius: "50%", background: group.color }} />
                 <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{group.title}</span>
@@ -229,6 +271,55 @@ export function Reports() {
           </div>
         </div>
       </div>
+      </>
+      ) : (
+        <div style={card}>
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: "minmax(140px,1.4fr) 1fr 0.8fr 90px 80px 70px",
+              gap: 10,
+              padding: "12px 18px",
+              fontSize: 11,
+              fontWeight: 700,
+              color: theme.textFaint,
+              letterSpacing: ".06em",
+              background: theme.surfaceAlt,
+            }}
+          >
+            <span>DESCRIPTION</span>
+            <span>PROJECT</span>
+            <span>TAGS</span>
+            <span>START</span>
+            <span>DURATION</span>
+            <span>BILL</span>
+          </div>
+          {report.csvRows
+            .filter((row) => row.kind === "work")
+            .filter((row) => !project || row.project === project)
+            .map((row) => (
+              <div
+                key={row.entry_id}
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: "minmax(140px,1.4fr) 1fr 0.8fr 90px 80px 70px",
+                  gap: 10,
+                  padding: "10px 18px",
+                  borderTop: `1px solid ${theme.border}`,
+                  alignItems: "center",
+                  fontSize: 13,
+                }}
+              >
+                <span style={{ fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{row.description || "(no description)"}</span>
+                <span style={{ color: theme.textMuted, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{row.project ?? "No project"}</span>
+                <span style={{ color: theme.textFaint, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{row.tags ?? ""}</span>
+                <span className="mono" style={{ fontSize: 12 }}>{new Date(row.start_at).toLocaleDateString(undefined, { month: "short", day: "numeric" })}</span>
+                <span className="mono">{fmt(Math.round(Number(row.duration_hours) * 3600))}</span>
+                <span style={{ color: row.billable ? theme.accent : theme.textFaint }}>{row.billable ? "$" : "—"}</span>
+              </div>
+            ))}
+        </div>
+      )}
     </div>
   );
 }
@@ -249,8 +340,8 @@ function rangeFor(preset: RangePreset): { from: Date; to: Date; label: string } 
 }
 
 function labelRange(from: Date, to: Date): string {
-  const fmt = (d: Date) => d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
-  return `${fmt(from)} – ${fmt(to)}`;
+  const fmtDate = (d: Date) => d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+  return `${fmtDate(from)} – ${fmtDate(to)}`;
 }
 
 function donutGradient(groups: Array<{ color: string; seconds: number }>): string {

@@ -2,7 +2,10 @@ import { useState } from "react";
 import { Sidebar } from "./components/Sidebar";
 import { TimeTracker } from "./screens/TimeTracker";
 import { Timesheet } from "./screens/Timesheet";
+import { Calendar } from "./screens/Calendar";
 import { Projects } from "./screens/Projects";
+import { Clients } from "./screens/Clients";
+import { Tags } from "./screens/Tags";
 import { Reports } from "./screens/Reports";
 import { Approvals } from "./screens/Approvals";
 import { AuditLog } from "./screens/AuditLog";
@@ -13,8 +16,11 @@ import { useStore } from "./hooks/useClockinator";
 const TITLES: Record<Screen, string> = {
   tracker: "Time Tracker",
   timesheet: "Timesheet",
+  calendar: "Calendar",
   reports: "Reports",
   projects: "Projects",
+  clients: "Clients",
+  tags: "Tags",
   approvals: "Approvals",
   audit: "Audit Log",
 };
@@ -46,8 +52,14 @@ export function App() {
           <TimeTracker />
         ) : screen === "timesheet" ? (
           <Timesheet />
+        ) : screen === "calendar" ? (
+          <Calendar />
         ) : screen === "projects" ? (
           <Projects />
+        ) : screen === "clients" ? (
+          <Clients />
+        ) : screen === "tags" ? (
+          <Tags />
         ) : screen === "reports" ? (
           <Reports />
         ) : screen === "approvals" ? (

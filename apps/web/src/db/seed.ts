@@ -85,6 +85,7 @@ export function seedIfEmpty(db: SqlDatabase, at: Date = new Date()): { workspace
   insertRate(db, "rate_task_hifi", "task", IDS.tasks.hifi, "billable", "175.00", created);
 
   seedTags(db, created);
+  seedTasks(db, created);
   ensureDenseDemo(db, at);
 
   run(
@@ -95,6 +96,23 @@ export function seedIfEmpty(db: SqlDatabase, at: Date = new Date()): { workspace
   );
 
   return { workspaceId: ws, userId: user };
+}
+
+function seedTasks(db: SqlDatabase, created: string): void {
+  const tasks: Array<[string, string, string, string | null]> = [
+    [IDS.tasks.hifi, IDS.projects.mobile, "Hi-fi mockups", "175.00"],
+    [IDS.tasks.tokens, IDS.projects.brand, "Type ramp & tokens", "145.00"],
+    [IDS.tasks.copy, IDS.projects.marketing, "Page copy", "130.00"],
+    [IDS.tasks.qa, IDS.projects.qa, "Regression pass", "110.00"],
+  ];
+  for (const [id, projectId, name, rate] of tasks) {
+    run(
+      db,
+      `INSERT OR IGNORE INTO tasks (id, workspace_id, project_id, name, billable_rate, status, created_at)
+       VALUES (?, ?, ?, ?, ?, 'active', ?)`,
+      [id, IDS.workspace, projectId, name, rate, created],
+    );
+  }
 }
 
 function seedTags(db: SqlDatabase, created: string): void {
@@ -295,6 +313,7 @@ const WEEKDAY_SLOTS: Record<number, DemoSlot[]> = {
 /** Fill ~4 weeks of weekday history so Tracker / Reports / Timesheet are not empty. Safe on existing DBs. */
 export function ensureDenseDemo(db: SqlDatabase, at: Date = new Date()): void {
   seedTags(db, nowIso(at));
+  seedTasks(db, nowIso(at));
   const today = startOfLocalDay(at);
   for (let offset = 0; offset < 28; offset++) {
     const day = addDays(today, -offset);

@@ -80,4 +80,87 @@ describe("timer engine", () => {
     expect(week.groups.length).toBeGreaterThan(4);
     expect(week.groups.some((g) => g.entries.length > 1)).toBe(true);
   });
+
+  it("edits and deletes a completed entry", async () => {
+    const store = await makeStore();
+    const at = new Date("2026-08-17T12:00:00");
+    const week = store.listWeekGroups(at);
+    const entry = week.groups[0]?.entries[0];
+    expect(entry?.id).toBeTruthy();
+    store.updateEntry({
+      id: entry!.id!,
+      description: "Edited checkout",
+      projectId: IDS.projects.mobile,
+      taskId: IDS.tasks.hifi,
+      tagIds: [IDS.tags.design],
+      isBillable: true,
+      start: new Date("2026-08-17T09:00:00"),
+      end: new Date("2026-08-17T11:00:00"),
+    });
+    expect(store.getEntry(entry!.id!)?.desc).toBe("Edited checkout");
+    store.deleteEntry(entry!.id!);
+    expect(store.getEntry(entry!.id!)).toBeUndefined();
+  });
+
+  it("lists completed break rows in the tracker and excludes them from week totals", async () => {
+    const store = await makeStore();
+    let clock = new Date("2026-08-17T10:00:00.000Z");
+    store.now = () => clock;
+    store.start({ description: "Focus", projectId: IDS.projects.mobile, at: clock });
+    clock = new Date("2026-08-17T10:30:00.000Z");
+    store.beginBreak();
+    clock = new Date("2026-08-17T10:45:00.000Z");
+    store.finishBreak();
+    clock = new Date("2026-08-17T11:00:00.000Z");
+    store.stop();
+
+    const week = store.listWeekGroups(new Date("2026-08-17T12:00:00"));
+    const breaks = week.groups.flatMap((g) => g.entries).filter((e) => e.kind === "break");
+    expect(breaks.length).toBeGreaterThan(0);
+    expect(breaks.every((e) => e.billable === false)).toBe(true);
+  });
+
+  it("locks and unlocks a timesheet week", async () => {
+    const store = await makeStore();
+    // Seed is anchored at 2026-08-16; use a day that falls inside a dense demo week.
+    const at = new Date("2026-08-14T12:00:00");
+    const locked = store.lockWeek(at);
+    expect(locked).toBeGreaterThan(0);
+    const state = store.weekLockState(at);
+    expect(state.locked).toBeGreaterThan(0);
+    const entry = store.listWeekGroups(at).groups.flatMap((g) => g.entries).find((e) => e.kind === "work" && e.approval === "locked");
+    expect(entry?.id).toBeTruthy();
+    expect(() =>
+      store.updateEntry({
+        id: entry!.id!,
+        description: "Nope",
+        projectId: IDS.projects.mobile,
+        taskId: null,
+        tagIds: [],
+        isBillable: true,
+        start: new Date("2026-08-14T09:00:00"),
+        end: new Date("2026-08-14T10:00:00"),
+      }),
+    ).toThrow(/Locked/);
+    expect(store.unlockWeek(at)).toBeGreaterThan(0);
+  });
+
+  it("updates task billable rates into rate_history", async () => {
+    const store = await makeStore();
+    store.updateTask(IDS.tasks.hifi, { name: "Hi-fi", billableRate: "200.00" });
+    const tasks = store.listTasks(IDS.projects.mobile);
+    expect(tasks.find((t) => t.id === IDS.tasks.hifi)?.billableRate).toBe("200.00");
+    const hist = store.get<{ amount: string }>(
+      `SELECT amount FROM rate_history WHERE subject_type = 'task' AND subject_id = ? AND effective_to IS NULL`,
+      [IDS.tasks.hifi],
+    );
+    expect(hist?.amount).toBe("200.00");
+  });
+
+  it("builds a calendar week with day columns", async () => {
+    const store = await makeStore();
+    const cal = store.calendarWeek(new Date("2026-08-16T12:00:00"));
+    expect(cal.days).toHaveLength(7);
+    expect(cal.weekTotal).toBeGreaterThan(0);
+  });
 });
