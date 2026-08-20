@@ -451,23 +451,56 @@ export class ClockinatorStore implements TimerEngineDb {
 
   listTasks(projectId?: string | null): TaskOption[] {
     const sql = projectId
-      ? `SELECT id, project_id, name FROM tasks WHERE workspace_id = ? AND project_id = ? AND status = 'active' ORDER BY name COLLATE NOCASE`
-      : `SELECT id, project_id, name FROM tasks WHERE workspace_id = ? AND status = 'active' ORDER BY name COLLATE NOCASE`;
+      ? `SELECT id, project_id, name, billable_rate FROM tasks WHERE workspace_id = ? AND project_id = ? AND status = 'active' ORDER BY name COLLATE NOCASE`
+      : `SELECT id, project_id, name, billable_rate FROM tasks WHERE workspace_id = ? AND status = 'active' ORDER BY name COLLATE NOCASE`;
     const params = projectId ? [this.workspaceId, projectId] : [this.workspaceId];
-    return this.all<{ id: string; project_id: string; name: string }>(sql, params).map((row) => ({
+    return this.all<{ id: string; project_id: string; name: string; billable_rate: string | null }>(sql, params).map((row) => ({
       id: row.id,
       projectId: row.project_id,
       name: row.name,
+      billableRate: row.billable_rate,
     }));
   }
 
-  createTask(projectId: string, name: string): void {
+  createTask(projectId: string, name: string, billableRate?: string | null): void {
     const id = this.newId();
+    const at = this.now().toISOString();
+    const rate = billableRate?.trim() ? billableRate.trim() : null;
     this.run(
-      `INSERT INTO tasks (id, workspace_id, project_id, name, billable_rate, status, created_at) VALUES (?, ?, ?, ?, NULL, 'active', ?)`,
-      [id, this.workspaceId, projectId, name.trim(), this.now().toISOString()],
+      `INSERT INTO tasks (id, workspace_id, project_id, name, billable_rate, status, created_at) VALUES (?, ?, ?, ?, ?, 'active', ?)`,
+      [id, this.workspaceId, projectId, name.trim(), rate, at],
     );
+    if (rate) {
+      this.run(
+        `INSERT INTO rate_history (id, workspace_id, subject_type, subject_id, rate_kind, amount, currency, effective_from, effective_to, created_at)
+         VALUES (?, ?, 'task', ?, 'billable', ?, 'USD', ?, NULL, ?)`,
+        [this.newId(), this.workspaceId, id, rate, at, at],
+      );
+    }
     this.audit("task.created", "task", id, { name: name.trim() });
+    this.touch();
+  }
+
+  updateTask(taskId: string, input: { name: string; billableRate: string }): void {
+    const at = this.now().toISOString();
+    const current = this.get<{ billable_rate: string | null }>(`SELECT billable_rate FROM tasks WHERE id = ?`, [taskId]);
+    if (!current) throw new Error("Unknown task");
+    const rate = input.billableRate.trim() ? input.billableRate.trim() : null;
+    this.run(`UPDATE tasks SET name = ?, billable_rate = ? WHERE id = ?`, [input.name.trim(), rate, taskId]);
+    if (rate !== (current.billable_rate ?? null)) {
+      this.run(
+        `UPDATE rate_history SET effective_to = ? WHERE subject_type = 'task' AND subject_id = ? AND rate_kind = 'billable' AND effective_to IS NULL`,
+        [at, taskId],
+      );
+      if (rate) {
+        this.run(
+          `INSERT INTO rate_history (id, workspace_id, subject_type, subject_id, rate_kind, amount, currency, effective_from, effective_to, created_at)
+           VALUES (?, ?, 'task', ?, 'billable', ?, 'USD', ?, NULL, ?)`,
+          [this.newId(), this.workspaceId, taskId, rate, at, at],
+        );
+      }
+    }
+    this.audit("task.updated", "task", taskId, { name: input.name.trim() });
     this.touch();
   }
 
@@ -519,7 +552,7 @@ export class ClockinatorStore implements TimerEngineDb {
     this.touch();
   }
 
-  listWeekGroups(at = this.now()): { groups: DayGroup[]; weekTotal: string } {
+  listWeekGroups(at = this.now()): { groups: DayGroup[]; weekTotal: string; weekTotalSeconds: number } {
     const from = addDays(startOfLocalDay(at), -13);
     const to = addDays(startOfLocalDay(at), 1);
     const weekStart = startOfLocalWeek(at);
@@ -532,7 +565,7 @@ export class ClockinatorStore implements TimerEngineDb {
        FROM time_entries e
        LEFT JOIN projects p ON p.id = e.project_id
        LEFT JOIN clients c ON c.id = p.client_id
-       WHERE e.workspace_id = ? AND e.user_id = ? AND e.deleted_at IS NULL AND e.kind = 'work' AND e.end_at IS NOT NULL
+       WHERE e.workspace_id = ? AND e.user_id = ? AND e.deleted_at IS NULL AND e.kind IN ('work', 'break') AND e.end_at IS NOT NULL
          AND e.start_at >= ? AND e.start_at < ?
        ORDER BY e.start_at DESC`,
       [this.workspaceId, this.userId, from.toISOString(), to.toISOString()],
@@ -548,8 +581,9 @@ export class ClockinatorStore implements TimerEngineDb {
         byDay.set(key, { label: dayLabel(key, todayKey, yesterdayKey), total: "", entries: [], dayKey: key });
       }
       const duration = Number(row.duration_seconds);
+      const isWork = row.kind === "work";
       const startMs = Date.parse(row.start_at);
-      if (startMs >= weekStart.getTime() && startMs < weekEnd.getTime()) weekSeconds += duration;
+      if (isWork && startMs >= weekStart.getTime() && startMs < weekEnd.getTime()) weekSeconds += duration;
       const tags = (row.tags ?? "")
         .split(",")
         .map((t) => t.trim())
@@ -560,10 +594,10 @@ export class ClockinatorStore implements TimerEngineDb {
         .filter(Boolean);
       byDay.get(key)!.entries.push({
         id: row.id,
-        desc: row.description || "(no description)",
-        project: row.project_name ?? "No project",
-        color: row.project_color ?? "#7d776e",
-        client: row.client_name ?? "",
+        desc: isWork ? row.description || "(no description)" : row.description?.trim() || "Break",
+        project: isWork ? row.project_name ?? "No project" : "Break",
+        color: isWork ? row.project_color ?? "#7d776e" : "#e08585",
+        client: isWork ? row.client_name ?? "" : "",
         tag: tags[0],
         tags,
         tagIds,
@@ -574,16 +608,19 @@ export class ClockinatorStore implements TimerEngineDb {
         startAt: row.start_at,
         endAt: row.end_at,
         dur: formatDuration(duration),
-        billable: row.is_billable === 1,
+        durationSeconds: duration,
+        billable: isWork && row.is_billable === 1,
         approval: row.approval_status,
         kind: row.kind,
       });
     }
     const groups = [...byDay.values()].map((g) => ({
       ...g,
-      total: formatDuration(g.entries.reduce((sum, e) => sum + parseDuration(e.dur), 0)),
+      total: formatDuration(
+        g.entries.filter((e) => e.kind !== "break").reduce((sum, e) => sum + (e.durationSeconds ?? 0), 0),
+      ),
     }));
-    return { groups, weekTotal: formatDuration(weekSeconds) };
+    return { groups, weekTotal: formatDuration(weekSeconds), weekTotalSeconds: weekSeconds };
   }
 
   timesheetWeek(at = this.now()): TimesheetGrid {
@@ -640,10 +677,58 @@ export class ClockinatorStore implements TimerEngineDb {
     };
   }
 
-  setApprovalStatus(entryId: string, status: "draft" | "submitted" | "approved" | "rejected"): void {
+  setApprovalStatus(entryId: string, status: "draft" | "submitted" | "approved" | "rejected" | "locked"): void {
     this.run(`UPDATE time_entries SET approval_status = ? WHERE id = ?`, [status, entryId]);
     this.audit(`time_entry.${status}`, "time_entry", entryId);
     this.touch();
+  }
+
+  lockWeek(at = this.now()): number {
+    const weekStart = startOfLocalWeek(at);
+    const weekEnd = addDays(weekStart, 7);
+    const rows = this.all<{ id: string }>(
+      `SELECT id FROM time_entries
+       WHERE workspace_id = ? AND user_id = ? AND deleted_at IS NULL AND kind = 'work' AND end_at IS NOT NULL
+         AND approval_status != 'locked' AND start_at >= ? AND start_at < ?`,
+      [this.workspaceId, this.userId, weekStart.toISOString(), weekEnd.toISOString()],
+    );
+    for (const row of rows) this.setApprovalStatus(row.id, "locked");
+    return rows.length;
+  }
+
+  unlockWeek(at = this.now()): number {
+    const weekStart = startOfLocalWeek(at);
+    const weekEnd = addDays(weekStart, 7);
+    const rows = this.all<{ id: string }>(
+      `SELECT id FROM time_entries
+       WHERE workspace_id = ? AND user_id = ? AND deleted_at IS NULL AND kind = 'work' AND end_at IS NOT NULL
+         AND approval_status = 'locked' AND start_at >= ? AND start_at < ?`,
+      [this.workspaceId, this.userId, weekStart.toISOString(), weekEnd.toISOString()],
+    );
+    for (const row of rows) {
+      this.run(`UPDATE time_entries SET approval_status = 'approved' WHERE id = ?`, [row.id]);
+      this.audit("time_entry.unlocked", "time_entry", row.id);
+    }
+    if (rows.length) this.touch();
+    return rows.length;
+  }
+
+  weekLockState(at = this.now()): { locked: number; unlocked: number } {
+    const weekStart = startOfLocalWeek(at);
+    const weekEnd = addDays(weekStart, 7);
+    const rows = this.all<{ approval_status: string }>(
+      `SELECT approval_status FROM time_entries
+       WHERE workspace_id = ? AND user_id = ? AND deleted_at IS NULL AND kind = 'work' AND end_at IS NOT NULL
+         AND start_at >= ? AND start_at < ?`,
+      [this.workspaceId, this.userId, weekStart.toISOString(), weekEnd.toISOString()],
+    );
+    let locked = 0;
+    let unlocked = 0;
+    for (const row of rows) {
+      if (row.approval_status === "locked") locked += 1;
+      else unlocked += 1;
+    }
+    return { locked, unlocked };
   }
 
   listApprovals(): ApprovalRow[] {
@@ -710,10 +795,12 @@ export class ClockinatorStore implements TimerEngineDb {
       duration_seconds: number;
       is_billable: number;
       billable_rate_snapshot: string;
+      cost_rate_snapshot: string;
       kind: string;
       start_at: string;
     }>(
-      `SELECT p.name AS project_name, p.color AS project_color, e.description, e.duration_seconds, e.is_billable, e.billable_rate_snapshot, e.kind, e.start_at
+      `SELECT p.name AS project_name, p.color AS project_color, e.description, e.duration_seconds, e.is_billable,
+              e.billable_rate_snapshot, e.cost_rate_snapshot, e.kind, e.start_at
        FROM time_entries e
        LEFT JOIN projects p ON p.id = e.project_id
        WHERE e.workspace_id = ? AND e.deleted_at IS NULL AND e.end_at IS NOT NULL
@@ -727,6 +814,11 @@ export class ClockinatorStore implements TimerEngineDb {
     const amount = work
       .filter((r) => r.is_billable === 1)
       .reduce((s, r) => s + (Number(r.duration_seconds) / 3600) * Number(r.billable_rate_snapshot || 0), 0);
+    const laborCost = work.reduce(
+      (s, r) => s + (Number(r.duration_seconds) / 3600) * Number(r.cost_rate_snapshot || 0),
+      0,
+    );
+    const profit = amount - laborCost;
     const byProject = new Map<string, { title: string; color: string; seconds: number }>();
     const byDay = new Map<string, ReportDay>();
     for (const row of work) {
@@ -757,6 +849,8 @@ export class ClockinatorStore implements TimerEngineDb {
       totalSeconds,
       billableSeconds,
       amount,
+      laborCost,
+      profit,
       daily: [...byDay.values()],
       groups: [...byProject.values()].sort((a, b) => b.seconds - a.seconds),
       csvRows: this.all<{
@@ -771,12 +865,13 @@ export class ClockinatorStore implements TimerEngineDb {
         duration_hours: number;
         billable: number;
         billable_rate: string;
+        cost_rate: string;
         kind: string;
       }>(
         `SELECT e.id AS entry_id, u.email AS user_email, p.name AS project, t.name AS task,
                 (SELECT GROUP_CONCAT(tg.name, ', ') FROM time_entry_tags et JOIN tags tg ON tg.id = et.tag_id WHERE et.time_entry_id = e.id) AS tags,
                 e.description, e.start_at, e.end_at, e.duration_seconds / 3600.0 AS duration_hours,
-                e.is_billable AS billable, e.billable_rate_snapshot AS billable_rate, e.kind
+                e.is_billable AS billable, e.billable_rate_snapshot AS billable_rate, e.cost_rate_snapshot AS cost_rate, e.kind
          FROM time_entries e
          JOIN users u ON u.id = e.user_id
          LEFT JOIN projects p ON p.id = e.project_id
@@ -867,6 +962,7 @@ export class ClockinatorStore implements TimerEngineDb {
       startAt: row.start_at,
       endAt: row.end_at,
       dur: formatDuration(Number(row.duration_seconds)),
+      durationSeconds: Number(row.duration_seconds),
       billable: row.is_billable === 1,
       approval: row.approval_status,
       kind: row.kind,
@@ -971,9 +1067,4 @@ export class ClockinatorStore implements TimerEngineDb {
     if (typeof indexedDB === "undefined") return;
     await savePersistedDb(this.db.export());
   }
-}
-
-function parseDuration(value: string): number {
-  const [h, m, s] = value.split(":").map(Number);
-  return h * 3600 + m * 60 + s;
 }

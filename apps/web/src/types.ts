@@ -25,6 +25,7 @@ export interface TimeEntry {
   startAt?: string;
   endAt?: string | null;
   dur: string;
+  durationSeconds?: number;
   billable: boolean;
   approval?: string;
   kind?: string;
@@ -54,6 +55,7 @@ export interface TaskOption {
   id: string;
   projectId: string;
   name: string;
+  billableRate?: string | null;
 }
 
 export interface ClientRow {

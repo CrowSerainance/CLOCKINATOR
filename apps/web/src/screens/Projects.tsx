@@ -237,6 +237,8 @@ function ProjectForm({
   onSave: (input: ProjectDraft) => void;
   onCancel: () => void;
 }) {
+  const store = useStore();
+  useStoreRevision();
   const [name, setName] = useState(project?.name ?? "");
   const [clientId, setClientId] = useState(project?.clientId ?? "");
   const [color, setColor] = useState(project?.color ?? "#5bbd7e");
@@ -245,6 +247,9 @@ function ProjectForm({
   const [estimatedHours, setEstimatedHours] = useState(project?.estimatedHours ?? "");
   const [access, setAccess] = useState<"public" | "private">(project?.access ?? "public");
   const [status, setStatus] = useState<"active" | "on_hold" | "archived">((project?.rawStatus as "active" | "on_hold" | "archived") ?? "active");
+  const [newTaskName, setNewTaskName] = useState("");
+  const [newTaskRate, setNewTaskRate] = useState("");
+  const tasks = project?.id ? store.listTasks(project.id) : [];
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
@@ -298,6 +303,46 @@ function ProjectForm({
           Billable
         </label>
       </div>
+
+      {project?.id && (
+        <div style={{ borderTop: `1px solid ${theme.border}`, paddingTop: 12 }}>
+          <div style={{ ...labelStyle, marginBottom: 8 }}>TASKS & RATES</div>
+          {tasks.map((task) => (
+            <TaskRateRow
+              key={task.id}
+              name={task.name}
+              rate={task.billableRate ?? ""}
+              onSave={(nextName, nextRate) => store.updateTask(task.id, { name: nextName, billableRate: nextRate })}
+            />
+          ))}
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 100px 72px", gap: 8, marginTop: 8 }}>
+            <input
+              value={newTaskName}
+              onChange={(e) => setNewTaskName(e.target.value)}
+              placeholder="New task"
+              style={{ ...fieldStyle, width: "100%" }}
+            />
+            <input
+              value={newTaskRate}
+              onChange={(e) => setNewTaskRate(e.target.value)}
+              placeholder="Rate"
+              style={{ ...fieldStyle, width: "100%" }}
+            />
+            <button
+              onClick={() => {
+                if (!newTaskName.trim() || !project.id) return;
+                store.createTask(project.id, newTaskName, newTaskRate || null);
+                setNewTaskName("");
+                setNewTaskRate("");
+              }}
+              style={btn(theme.surfaceAlt, theme.text)}
+            >
+              Add
+            </button>
+          </div>
+        </div>
+      )}
+
       <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
         <button onClick={onCancel} style={btn(theme.surfaceAlt, theme.text)}>
           Cancel
@@ -312,6 +357,33 @@ function ProjectForm({
           Save
         </button>
       </div>
+    </div>
+  );
+}
+
+function TaskRateRow({
+  name,
+  rate,
+  onSave,
+}: {
+  name: string;
+  rate: string;
+  onSave: (name: string, rate: string) => void;
+}) {
+  const [taskName, setTaskName] = useState(name);
+  const [taskRate, setTaskRate] = useState(rate);
+  const dirty = taskName !== name || taskRate !== rate;
+  return (
+    <div style={{ display: "grid", gridTemplateColumns: "1fr 100px 72px", gap: 8, marginBottom: 6 }}>
+      <input value={taskName} onChange={(e) => setTaskName(e.target.value)} style={{ ...fieldStyle, width: "100%" }} />
+      <input value={taskRate} onChange={(e) => setTaskRate(e.target.value)} placeholder="—" style={{ ...fieldStyle, width: "100%" }} />
+      <button
+        disabled={!dirty || !taskName.trim()}
+        onClick={() => onSave(taskName, taskRate)}
+        style={btn(dirty ? theme.accent : theme.surfaceAlt, dirty ? theme.accentInk : theme.textFaint)}
+      >
+        Save
+      </button>
     </div>
   );
 }

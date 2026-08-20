@@ -2,6 +2,8 @@ import { useState, type CSSProperties } from "react";
 import { theme } from "../theme";
 import { useTimer } from "../hooks/useTimer";
 import { useStore } from "../hooks/useClockinator";
+import { useDurationFormat } from "../hooks/useDurationFormat";
+import { formatDisplayDuration } from "../domain/preferences";
 import { btn, fieldStyle } from "../components/ui";
 import { Modal } from "../components/Modal";
 import { EntryEditor } from "../components/EntryEditor";
@@ -9,6 +11,7 @@ import type { TagOption, TimeEntry } from "../types";
 
 export function TimeTracker() {
   const timer = useTimer();
+  const [durationFormat, setDurationFormat] = useDurationFormat();
   const [query, setQuery] = useState("");
   const [editing, setEditing] = useState<TimeEntry | null>(null);
   const [adding, setAdding] = useState(false);
@@ -35,9 +38,19 @@ export function TimeTracker() {
       <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 12 }}>
         <div style={{ fontSize: 15, fontWeight: 700 }}>This week</div>
         <div style={{ fontSize: 13, color: theme.textMuted }}>
-          Week total <span className="mono" style={{ color: theme.text, fontWeight: 600 }}>{timer.weekTotal}</span>
+          Week total{" "}
+          <span className="mono" style={{ color: theme.text, fontWeight: 600 }}>
+            {formatDisplayDuration(timer.weekTotalSeconds, durationFormat)}
+          </span>
         </div>
         <div style={{ flex: 1 }} />
+        <button
+          onClick={() => setDurationFormat(durationFormat === "clock" ? "decimal" : "clock")}
+          title="Toggle decimal hours"
+          style={btn(theme.surfaceAlt, theme.textMuted, { fontSize: 12 })}
+        >
+          {durationFormat === "clock" ? "h:mm:ss" : "0.00h"}
+        </button>
         <input
           value={query}
           onChange={(e) => setQuery(e.target.value)}
@@ -55,45 +68,54 @@ export function TimeTracker() {
         </div>
       )}
 
-      {groups.map((group) => (
-        <div
-          key={group.dayKey ?? group.label}
-          style={{
-            background: theme.surface,
-            border: `1px solid ${theme.border}`,
-            borderRadius: 12,
-            marginBottom: 10,
-            overflow: "hidden",
-          }}
-        >
+      {groups.map((group) => {
+        const groupSeconds = group.entries
+          .filter((e) => e.kind !== "break")
+          .reduce((sum, e) => sum + (e.durationSeconds ?? 0), 0);
+        return (
           <div
+            key={group.dayKey ?? group.label}
             style={{
-              display: "flex",
-              justifyContent: "space-between",
-              padding: "9px 16px",
-              fontSize: 12,
-              background: theme.surfaceAlt,
-              borderBottom: `1px solid ${theme.border}`,
+              background: theme.surface,
+              border: `1px solid ${theme.border}`,
+              borderRadius: 12,
+              marginBottom: 10,
+              overflow: "hidden",
             }}
           >
-            <span style={{ fontWeight: 700, color: theme.textMuted, letterSpacing: ".02em" }}>{group.label.toUpperCase()}</span>
-            <span style={{ color: theme.textMuted }}>
-              Total <span className="mono" style={{ color: theme.text, fontWeight: 600 }}>{group.total}</span>
-            </span>
-          </div>
-          {group.entries.map((entry) => (
-            <EntryRow
-              key={entry.id ?? `${entry.desc}-${entry.start}`}
-              entry={entry}
-              canRestart={timer.isIdle && Boolean(entry.id)}
-              onRestart={() => {
-                if (entry.id) timer.restartFrom(entry.id);
+            <div
+              style={{
+                display: "flex",
+                justifyContent: "space-between",
+                padding: "9px 16px",
+                fontSize: 12,
+                background: theme.surfaceAlt,
+                borderBottom: `1px solid ${theme.border}`,
               }}
-              onEdit={() => setEditing(entry)}
-            />
-          ))}
-        </div>
-      ))}
+            >
+              <span style={{ fontWeight: 700, color: theme.textMuted, letterSpacing: ".02em" }}>{group.label.toUpperCase()}</span>
+              <span style={{ color: theme.textMuted }}>
+                Total{" "}
+                <span className="mono" style={{ color: theme.text, fontWeight: 600 }}>
+                  {formatDisplayDuration(groupSeconds, durationFormat)}
+                </span>
+              </span>
+            </div>
+            {group.entries.map((entry) => (
+              <EntryRow
+                key={entry.id ?? `${entry.desc}-${entry.start}`}
+                entry={entry}
+                durationFormat={durationFormat}
+                canRestart={timer.isIdle && Boolean(entry.id) && entry.kind !== "break"}
+                onRestart={() => {
+                  if (entry.id) timer.restartFrom(entry.id);
+                }}
+                onEdit={() => setEditing(entry)}
+              />
+            ))}
+          </div>
+        );
+      })}
       {(editing || adding) && (
         <Modal title={editing ? "Edit entry" : "Add time"} onClose={() => { setEditing(null); setAdding(false); }}>
           <EntryEditor
@@ -433,17 +455,20 @@ function EntryRow({
   canRestart,
   onRestart,
   onEdit,
+  durationFormat,
 }: {
   entry: TimeEntry;
   canRestart: boolean;
   onRestart: () => void;
   onEdit: () => void;
+  durationFormat: "clock" | "decimal";
 }) {
+  const isBreak = entry.kind === "break";
   const tags = entry.tags.length ? entry.tags : entry.tag ? [entry.tag] : [];
   return (
     <div
       onClick={onEdit}
-      title="Edit entry"
+      title={isBreak ? "Edit break" : "Edit entry"}
       style={{
         display: "grid",
         gridTemplateColumns: "minmax(160px,1.6fr) minmax(160px,1.3fr) minmax(90px,0.8fr) 22px 110px 72px 36px",
@@ -452,43 +477,55 @@ function EntryRow({
         padding: "9px 16px",
         borderTop: `1px solid ${theme.border}`,
         cursor: "pointer",
+        opacity: isBreak ? 0.85 : 1,
+        background: isBreak ? "rgba(224,133,133,0.06)" : undefined,
       }}
     >
-      <div style={{ fontSize: 13, fontWeight: 600, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-        {entry.desc}
+      <div style={{ fontSize: 13, fontWeight: 600, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", color: isBreak ? theme.textMuted : theme.text }}>
+        {isBreak ? "Break" : entry.desc}
       </div>
       <div style={{ display: "flex", alignItems: "center", gap: 7, minWidth: 0 }}>
         <span style={{ width: 8, height: 8, borderRadius: "50%", background: entry.color, flexShrink: 0 }} />
         <span style={{ fontSize: 12, color: theme.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-          {entry.project}
+          {isBreak ? "—" : entry.project}
         </span>
-        <span style={{ fontSize: 12, color: theme.textFaint, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-          {entry.client ? `· ${entry.client}` : ""}
-        </span>
+        {!isBreak && (
+          <span style={{ fontSize: 12, color: theme.textFaint, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+            {entry.client ? `· ${entry.client}` : ""}
+          </span>
+        )}
       </div>
       <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
-        {tags.map((tag) => (
-          <span
-            key={tag}
-            style={{
-              fontSize: 10,
-              fontWeight: 600,
-              color: theme.textMuted,
-              background: theme.surfaceAlt,
-              borderRadius: 6,
-              padding: "2px 6px",
-            }}
-          >
-            {tag}
+        {isBreak ? (
+          <span style={{ fontSize: 10, fontWeight: 600, color: theme.danger, background: theme.surfaceAlt, borderRadius: 6, padding: "2px 6px" }}>
+            break
           </span>
-        ))}
+        ) : (
+          tags.map((tag) => (
+            <span
+              key={tag}
+              style={{
+                fontSize: 10,
+                fontWeight: 600,
+                color: theme.textMuted,
+                background: theme.surfaceAlt,
+                borderRadius: 6,
+                padding: "2px 6px",
+              }}
+            >
+              {tag}
+            </span>
+          ))
+        )}
       </div>
-      <span style={{ textAlign: "center", color: entry.billable ? theme.accent : theme.textFaint, fontWeight: 700 }}>$</span>
+      <span style={{ textAlign: "center", color: entry.billable ? theme.accent : theme.textFaint, fontWeight: 700 }}>
+        {isBreak ? "—" : "$"}
+      </span>
       <span className="mono" style={{ fontSize: 12, color: theme.textMuted }}>
         {entry.start} – {entry.end}
       </span>
       <span className="mono" style={{ fontSize: 13, fontWeight: 600, textAlign: "right" }}>
-        {entry.dur}
+        {formatDisplayDuration(entry.durationSeconds ?? 0, durationFormat)}
       </span>
       <button
         onClick={(e) => {
