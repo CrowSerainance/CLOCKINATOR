@@ -3,9 +3,10 @@ import { theme } from "../theme";
 import { useStore, useStoreRevision } from "../hooks/useClockinator";
 import { useDurationFormat } from "../hooks/useDurationFormat";
 import { formatDisplayDuration } from "../domain/preferences";
-import { addDays, formatHours, startOfLocalDay, startOfLocalWeek } from "../domain/duration";
-import { downloadBlob, downloadTextFile, textToPdf, toCsv } from "../domain/reports";
+import { addDays, startOfLocalDay, startOfLocalWeek } from "../domain/duration";
+import { downloadBlob, downloadTextFile, buildTimeSummaryPdf, toCsv } from "../domain/reports";
 import { btn, card, fieldStyle, pagePad } from "../components/ui";
+import { formatAmount } from "../domain/money";
 
 type RangePreset = "week" | "last7" | "last30";
 
@@ -70,15 +71,71 @@ export function Reports() {
   };
 
   const exportPdf = () => {
-    const lines = [
-      `Range: ${range.label}`,
-      `Total: ${fmt(report.totalSeconds)}   Billable: ${fmt(report.billableSeconds)}   Amount: $${report.amount.toFixed(2)}`,
-      `Labor: $${report.laborCost.toFixed(2)}   Profit: $${report.profit.toFixed(2)}`,
-      "",
-      "By project",
-      ...report.groups.map((g) => `${g.title.padEnd(32, " ")} ${fmt(g.seconds)}  (${formatHours(g.seconds)}h)`),
-    ];
-    downloadBlob("clockinator-report.pdf", textToPdf("Clockinator report", lines));
+    const workRows = report.csvRows.filter((r) => r.kind === "work");
+    const byProject = new Map<string, { seconds: number; amount: number }>();
+    const byDescription = new Map<string, { seconds: number; amount: number }>();
+    const nested = new Map<string, { seconds: number; children: Map<string, { seconds: number; amount: number }> }>();
+
+    for (const row of workRows) {
+      if (project && row.project !== project) continue;
+      if (client) {
+        const match = projects.find((p) => p.name === row.project);
+        if ((match?.clientName ?? "") !== client) continue;
+      }
+      const seconds = Math.round(Number(row.duration_hours) * 3600);
+      const amount = row.billable ? (Number(row.duration_hours) * Number(row.billable_rate || 0)) : 0;
+      const projectTitle = row.project ?? "No project";
+      const descTitle = row.description || "(no description)";
+
+      const p = byProject.get(projectTitle) ?? { seconds: 0, amount: 0 };
+      p.seconds += seconds;
+      p.amount += amount;
+      byProject.set(projectTitle, p);
+
+      const d = byDescription.get(descTitle) ?? { seconds: 0, amount: 0 };
+      d.seconds += seconds;
+      d.amount += amount;
+      byDescription.set(descTitle, d);
+
+      const n = nested.get(projectTitle) ?? { seconds: 0, children: new Map() };
+      n.seconds += seconds;
+      const child = n.children.get(descTitle) ?? { seconds: 0, amount: 0 };
+      child.seconds += seconds;
+      child.amount += amount;
+      n.children.set(descTitle, child);
+      nested.set(projectTitle, n);
+    }
+
+    const totalSeconds = [...byProject.values()].reduce((s, v) => s + v.seconds, 0);
+    const totalAmount = [...byProject.values()].reduce((s, v) => s + v.amount, 0);
+
+    const blob = buildTimeSummaryPdf({
+      title: "Summary report",
+      from: range.from,
+      toExclusive: range.to,
+      totalSeconds,
+      subtitle: `Billable amount: $${formatAmount(totalAmount)} · Labor: $${formatAmount(report.laborCost)} · Profit: $${formatAmount(report.profit)}`,
+      byProject: [...byProject.entries()]
+        .map(([title, v]) => ({ title, seconds: v.seconds, amount: `$${formatAmount(v.amount)}` }))
+        .sort((a, b) => b.seconds - a.seconds),
+      byDescription: [...byDescription.entries()]
+        .map(([title, v]) => ({ title, seconds: v.seconds, amount: `$${formatAmount(v.amount)}` }))
+        .sort((a, b) => b.seconds - a.seconds),
+      nested: [...nested.entries()]
+        .map(([projectName, v]) => ({
+          project: projectName,
+          seconds: v.seconds,
+          children: [...v.children.entries()]
+            .map(([title, c]) => ({ title, seconds: c.seconds, amount: `$${formatAmount(c.amount)}` }))
+            .sort((a, b) => b.seconds - a.seconds),
+        }))
+        .sort((a, b) => b.seconds - a.seconds),
+      workspaceName: store.workspaceName,
+    });
+
+    const fromLabel = range.from.toISOString().slice(0, 10);
+    const toLabel = new Date(range.to.getTime() - 1).toISOString().slice(0, 10);
+    downloadBlob(`Clockinator_Time_Report_Summary_${fromLabel}_${toLabel}.pdf`, blob);
   };
 
   const donut = donutGradient(grouped);

@@ -163,4 +163,18 @@ describe("timer engine", () => {
     expect(cal.days).toHaveLength(7);
     expect(cal.weekTotal).toBeGreaterThan(0);
   });
+
+  it("creates an invoice from billable entries and blocks double-billing", async () => {
+    const store = await makeStore();
+    const from = new Date("2026-07-20T00:00:00");
+    const to = new Date("2026-08-17T00:00:00");
+    expect(store.countInvoiceableEntries(IDS.clients.lumen, from, to)).toBeGreaterThan(0);
+    const id = store.createInvoiceFromRange({ clientId: IDS.clients.lumen, from, toExclusive: to });
+    const inv = store.getInvoice(id);
+    expect(inv?.number).toMatch(/^INV-/);
+    expect(inv?.lineCount).toBeGreaterThan(0);
+    expect(inv?.amount).toBeGreaterThan(0);
+    expect(store.countInvoiceableEntries(IDS.clients.lumen, from, to)).toBe(0);
+    expect(() => store.createInvoiceFromRange({ clientId: IDS.clients.lumen, from, toExclusive: to })).toThrow(/already invoiced|No billable/);
+  });
 });

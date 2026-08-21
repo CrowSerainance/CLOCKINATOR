@@ -9,6 +9,7 @@ import { Tags } from "./screens/Tags";
 import { Reports } from "./screens/Reports";
 import { Approvals } from "./screens/Approvals";
 import { AuditLog } from "./screens/AuditLog";
+import { Invoices } from "./screens/Invoices";
 import type { Screen } from "./types";
 import { theme } from "./theme";
 import { useStore } from "./hooks/useClockinator";
@@ -21,6 +22,7 @@ const TITLES: Record<Screen, string> = {
   projects: "Projects",
   clients: "Clients",
   tags: "Tags",
+  invoices: "Invoices",
   approvals: "Approvals",
   audit: "Audit Log",
 };
@@ -62,6 +64,8 @@ export function App() {
           <Tags />
         ) : screen === "reports" ? (
           <Reports />
+        ) : screen === "invoices" ? (
+          <Invoices />
         ) : screen === "approvals" ? (
           <Approvals />
         ) : (

@@ -4,7 +4,7 @@ Read this before changing anything. Short rules live in [`AGENTS.md`](./AGENTS.m
 
 **Workspace:** `C:\Clockify`  
 **Git repo:** `C:\Clockify\CLOCKINATOR-main` (branch `main`)  
-**Updated:** 20 Aug 2026 — Stream J slice: break rows on tracker, timesheet lock/unlock week, task rate editor on project form, decimal duration toggle (localStorage), labor cost + profit on Reports. Grid statuses below updated. Still deferred: invoice UI, custom fields, CSV import, rounding, favorite entries, bulk edit.
+**Updated:** 21 Aug 2026 — Invoices screen + shared Clockify-style multi-page PDF export (`buildSummaryPdf` / `buildTimeSummaryPdf`). Reports and Invoice PDFs use the same layout (title, range, total, Project / Description / nested sections, workspace footer). Remaining Stream J: custom fields, CSV import, rounding, favorite entries, bulk edit.
 
 This is a **Clockify-inspired self-hosted / local-first time-ops product**, not a Clockify clone. Do not copy vendor UI, chrome, copy, or implementation. Match *capabilities* using Clockinator’s own design.
 
@@ -44,7 +44,7 @@ Desktop path (not scaffolded): Tauri or Electron wrapping this renderer, swappin
 - Scheduling, forecasting, time off, expenses (until core local loop is boringly solid)
 - Publishing Clockify screenshots (`design/references/` is gitignored)
 
-Invoice **tables** exist in SQLite. Invoice **UI** is Stream J (later local), not a forever skip.
+Invoice **tables** and **UI** exist. Create drafts from billable client time; export PDF uses the shared summary layout.
 
 ---
 
@@ -68,6 +68,7 @@ CLOCKINATOR-main/
     src/screens/Projects.tsx
     src/screens/Clients.tsx
     src/screens/Tags.tsx
+    src/screens/Invoices.tsx
     src/screens/Approvals.tsx
     src/screens/AuditLog.tsx
   apps/api/timeops_core/       # Python in-memory domain (tests only for now)
@@ -98,12 +99,13 @@ CLOCKINATOR-main/
 | Projects list / favorite / create | Yes — form (client, color, rate, estimate, access, tasks) + filters + CSV |
 | Clients / Tags | Yes — list + create |
 | Reports range + group-by | Yes — Summary + Detailed, labor/profit, project/description grouping, bars + donut |
-| CSV / PDF export | Yes |
+| CSV / PDF export | Yes — shared multi-page summary PDF (Reports + Invoices) |
 | Timesheet week grid | Yes — click empty cell to add; submit week; lock/unlock week |
 | Calendar week grid | Yes — positioned blocks 07:00–20:00, add/edit |
 | Approvals | Yes — submit / approve / reject on `approval_status` |
+| Invoices | Yes — draft from billable client time; status; PDF export |
 | Audit log screen | Yes — recent `audit_logs` |
-| Invoices / custom fields | Schema only |
+| Custom fields | Schema only |
 | Tag picker on composer | Yes |
 | Native desktop SQLite | Not started |
 
@@ -144,7 +146,8 @@ Rough count excluding Skip: ~12 Done, ~10 Engine/Schema/Partial, ~8 No. Skip ~19
 | Kiosk | Skip | Explicit non-goal |
 | Decimal format | Done | Toggle `h:mm:ss` / `0.00h` on Tracker, Timesheet, Reports (`preferences.ts` + localStorage) |
 | Time audit | Partial | `AuditLog.tsx` lists `audit_logs`. Not Clockify discrepancy/override report; no IP/UA |
-| Customize exports | Partial | Fixed CSV/PDF columns; no picker / XLSX / share links |
+| Customize exports | Partial | Shared summary PDF layout for Reports + Invoices; CSV still fixed columns; no XLSX / share links |
+| Export & share data | Partial | Local CSV + summary PDF; no share/print/XLSX |
 | Project templates | No | Python `template_name` only; no SQLite column |
 | Historic rates | Engine | `rate_history` + `historicRateAt` on write; no history admin UI |
 | Import timesheets | Schema | `source='import'` allowed; no importer |
@@ -152,7 +155,7 @@ Rough count excluding Skip: ~12 Done, ~10 Engine/Schema/Partial, ~8 No. Skip ~19
 | Favorite entries | No | Favorite **projects** yes (`is_favorite`) — different feature |
 | Split time | Done | Running session Split |
 | Billability & billable rates | Done | `$` toggle; task → project → workspace |
-| Export & share data | Partial | Local CSV/PDF; no share/print/XLSX |
+| Export & share data | Partial | Local CSV + summary PDF; no share/print/XLSX |
 | Time estimates | Partial | `projects.estimated_hours` + progress bar; no report overlay |
 
 #### BASIC (12)
@@ -160,7 +163,7 @@ Rough count excluding Skip: ~12 Done, ~10 Engine/Schema/Partial, ~8 No. Skip ~19
 | Feature | Status | Notes |
 |---|---|---|
 | Time off | Skip | Non-goal until core is solid |
-| Invoicing | Schema | `invoices` + `invoice_lines`; UI still Stream J |
+| Invoicing | Done | List + create draft from billable client range; mark sent/paid; PDF via shared summary layout |
 | Approval | Partial | Submit/approve/reject; no comments, withdrawal, manager queue polish |
 | Lock timesheet | Done | Timesheet **Lock week** / **Unlock**; `approval_status='locked'` blocks edit/delete |
 | Targets & reminders | No | |
@@ -256,21 +259,21 @@ Python **3.12+**. Web: React 18, Vite 5, TypeScript, sql.js, **no router, no UI 
 - Projects form (client/color/rate/estimate/access) + **task rate editor** + filters + CSV
 - Clients + Tags screens
 - Timesheet week grid + submit week + **lock/unlock week**
+- Invoices list + draft from billable client time + shared summary PDF export
 - Calendar week grid
 - Approvals submit/approve/reject + Audit log list
 
 ### Stream J — Local grid gaps (claim one slice)
 
-Shipped this pass: break rows, lock week, task rates, decimal format, labor/profit on reports.
+Shipped: break rows, lock week, task rates, decimal format, labor/profit, **invoice UI + shared PDF**.
 
-Still open (highest leverage first):
+Still open:
 
-1. Invoice UI (draft from approved billable entries) — tables exist
-2. Custom/required fields on composer
-3. CSV timesheet import
-4. Rounding (report/export duration rounding rules)
-5. Favorite time-entry presets (not project stars)
-6. Bulk edit
+1. Custom/required fields on composer
+2. CSV timesheet import
+3. Rounding (report/export duration rounding rules)
+4. Favorite time-entry presets (not project stars)
+5. Bulk edit
 
 ### Stream I — Native desktop adapter
 
@@ -282,7 +285,7 @@ Only after local-first is boringly solid. Optional FastAPI wrapping Python or a 
 
 ### Do not start
 
-Dashboard, kiosk, GPS, screenshots, SSO/SCIM, QuickBooks, data regions, Clockify-identical chrome. (Invoice UI is Stream J, not banned.)
+Dashboard, kiosk, GPS, screenshots, SSO/SCIM, QuickBooks, data regions, Clockify-identical chrome.
 
 ---
 
@@ -319,7 +322,7 @@ Elapsed work = sum of completed work durations + live work period. Break clock i
 - IndexedDB holds the whole sqlite file. Single-tab assumed; no `navigator.locks` yet.
 - **sql.js browser ESM has no default export.** Load `sql.js/dist/sql-asm.js` after React paints (`src/db/client.ts` + dynamic import in `useClockinator.tsx`). Do not `import initSqlJs from "sql.js"` in the renderer — that whitescreens `#root`.
 - `sql.js` WASM is ~650KB. Keep it the only native-ish dep until a desktop adapter exists.
-- Reports PDF is a hand-rolled one-page Helvetica file — fine for local totals, not for branded invoices.
+- PDF exports use multi-page Helvetica summary layout (`domain/pdf.ts`) — matches Clockify summary-report structure, branded Clockinator. Not a full invoice designer.
 - Python domain has **no** pause/split/break. TS is ahead. Do not “fix” the UI by calling Python.
 - `RunningBar` demo (`useState(2537)`) was removed; do not bring it back.
 - Project tracked hours are **real sums**, not the old mockup’s 68.2h fixtures.
@@ -338,7 +341,7 @@ Elapsed work = sum of completed work durations + live work period. Break clock i
 | Queries + lists | `apps/web/src/db/store.ts` |
 | Timer rules | `apps/web/src/domain/timer.ts` |
 | Rate hierarchy | `apps/web/src/domain/rates.ts` |
-| CSV/PDF | `apps/web/src/domain/reports.ts` |
+| CSV/PDF | `apps/web/src/domain/reports.ts`, `domain/pdf.ts` |
 | Duration display prefs | `apps/web/src/domain/preferences.ts`, `hooks/useDurationFormat.ts` |
 | Hook | `apps/web/src/hooks/useTimer.ts` |
 | Time Tracker | `apps/web/src/screens/TimeTracker.tsx` |
@@ -348,6 +351,7 @@ Elapsed work = sum of completed work durations + live work period. Break clock i
 | Projects | `apps/web/src/screens/Projects.tsx` |
 | Clients | `apps/web/src/screens/Clients.tsx` |
 | Tags | `apps/web/src/screens/Tags.tsx` |
+| Invoices | `apps/web/src/screens/Invoices.tsx` |
 | Approvals | `apps/web/src/screens/Approvals.tsx` |
 | Audit | `apps/web/src/screens/AuditLog.tsx` |
 | Seed / demo week | `apps/web/src/db/seed.ts` (`ensureDenseDemo`) |
