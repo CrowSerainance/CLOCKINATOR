@@ -122,10 +122,10 @@ CLOCKINATOR-main/
 | Pause / split / breaks | Wired; completed breaks listed on tracker | — |
 | Projects table + filters | Live form + task rates + filter bar + export | Member access rules |
 | Clients / Tags | Live list + create | Archive / merge |
-| Reports summary | Totals + labor/profit + decimal toggle + charts + Detailed | Weekly tab, rounding |
+| Reports summary | Totals + labor/profit + From/To range + decimal toggle + charts + Detailed | Rounding |
 | Timesheet week grid | Live + submit week + lock/unlock week | — |
 | Approvals queue | Live | Comments |
-| Calendar | Week grid + add/edit | Day view, drag/drop |
+| Calendar | Week grid + jump-to-date + month/week nav + today highlight | Day view, drag/drop |
 
 ### Clockify paid 49-feature grid → Clockinator (offline audit)
 

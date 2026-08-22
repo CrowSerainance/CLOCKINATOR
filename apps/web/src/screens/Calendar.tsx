@@ -1,8 +1,8 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { theme } from "../theme";
 import { useStore, useStoreRevision } from "../hooks/useClockinator";
-import { addDays, formatDuration, startOfLocalWeek, toDateInput } from "../domain/duration";
-import { btn, pagePad } from "../components/ui";
+import { addDays, formatDuration, localDayKey, startOfLocalWeek, toDateInput } from "../domain/duration";
+import { btn, fieldStyle, pagePad } from "../components/ui";
 import { Modal } from "../components/Modal";
 import { EntryEditor } from "../components/EntryEditor";
 
@@ -11,35 +11,103 @@ const HOUR_END = 20;
 const ROW_H = 48;
 const hours = Array.from({ length: HOUR_END - HOUR_START }, (_, i) => HOUR_START + i);
 
+function weekOffsetFromDate(date: Date): number {
+  const target = startOfLocalWeek(date).getTime();
+  const current = startOfLocalWeek(new Date()).getTime();
+  return Math.round((target - current) / (7 * 24 * 60 * 60 * 1000));
+}
+
+function formatWeekLabel(weekStart: Date): string {
+  const weekEnd = addDays(weekStart, 6);
+  const sameYear = weekStart.getFullYear() === weekEnd.getFullYear();
+  const sameMonth = sameYear && weekStart.getMonth() === weekEnd.getMonth();
+  if (sameMonth) {
+    return `${weekStart.toLocaleDateString(undefined, { month: "short", day: "numeric" })} – ${weekEnd.getDate()}, ${weekEnd.getFullYear()}`;
+  }
+  if (sameYear) {
+    return `${weekStart.toLocaleDateString(undefined, { month: "short", day: "numeric" })} – ${weekEnd.toLocaleDateString(undefined, { month: "short", day: "numeric" })}, ${weekEnd.getFullYear()}`;
+  }
+  return `${weekStart.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })} – ${weekEnd.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })}`;
+}
+
 export function Calendar() {
   const store = useStore();
   useStoreRevision();
   const [offset, setOffset] = useState(0);
   const weekStart = addDays(startOfLocalWeek(new Date()), offset * 7);
+  const weekEnd = addDays(weekStart, 6);
   const grid = store.calendarWeek(weekStart);
   const [draft, setDraft] = useState<{ date: string; start: string; end: string } | null>(null);
   const [editId, setEditId] = useState<string | null>(null);
   const trackerEntry = editId ? store.getEntry(editId) : undefined;
+  const todayKey = localDayKey(new Date().toISOString());
+  const jumpValue = toDateInput(weekStart);
+
+  const isThisWeek = offset === 0;
+  const weekLabel = useMemo(() => formatWeekLabel(weekStart), [weekStart]);
 
   return (
     <div style={{ ...pagePad, display: "flex", flexDirection: "column", minHeight: 0, overflow: "hidden" }}>
-      <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 14, flexShrink: 0 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 14, flexShrink: 0, flexWrap: "wrap" }}>
         <div style={{ fontSize: 22, fontWeight: 700 }}>Calendar</div>
-        <div style={{ fontSize: 13, color: theme.textMuted }}>Week</div>
-        <button onClick={() => setOffset((n) => n - 1)} style={btn(theme.surfaceAlt, theme.text)}>
-          ←
+        <button
+          title="Previous week"
+          onClick={() => setOffset((n) => n - 1)}
+          style={btn(theme.surfaceAlt, theme.text)}
+        >
+          ← Week
         </button>
-        <button onClick={() => setOffset(0)} style={btn(theme.surfaceAlt, theme.text)}>
-          This week
+        <button
+          onClick={() => setOffset(0)}
+          style={btn(isThisWeek ? theme.accent + "22" : theme.surfaceAlt, isThisWeek ? theme.text : theme.textMuted, {
+            border: `1px solid ${isThisWeek ? theme.accent + "55" : theme.border}`,
+          })}
+        >
+          Today
         </button>
-        <button onClick={() => setOffset((n) => n + 1)} style={btn(theme.surfaceAlt, theme.text)}>
-          →
+        <button
+          title="Next week"
+          onClick={() => setOffset((n) => n + 1)}
+          style={btn(theme.surfaceAlt, theme.text)}
+        >
+          Week →
         </button>
-        <div style={{ flex: 1 }} />
+        <button
+          title="Previous month"
+          onClick={() => setOffset((n) => n - 4)}
+          style={btn(theme.surfaceAlt, theme.textMuted, { fontSize: 12 })}
+        >
+          ← Month
+        </button>
+        <button
+          title="Next month"
+          onClick={() => setOffset((n) => n + 4)}
+          style={btn(theme.surfaceAlt, theme.textMuted, { fontSize: 12 })}
+        >
+          Month →
+        </button>
+        <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: theme.textMuted }}>
+          Jump to
+          <input
+            type="date"
+            value={jumpValue}
+            onChange={(e) => {
+              if (!e.target.value) return;
+              const [y, m, d] = e.target.value.split("-").map(Number);
+              setOffset(weekOffsetFromDate(new Date(y, m - 1, d)));
+            }}
+            style={{ ...fieldStyle, padding: "6px 10px" }}
+          />
+        </label>
+        <div style={{ flex: 1, minWidth: 12 }} />
+        <div style={{ fontSize: 14, fontWeight: 600 }}>{weekLabel}</div>
         <div className="mono" style={{ fontSize: 18, fontWeight: 700 }}>
           {formatDuration(grid.weekTotal)}
         </div>
-        <button onClick={() => setDraft({ date: toDateInput(new Date()), start: "09:00", end: "10:00" })} style={btn(theme.accent, theme.accentInk)}>
+        <button
+          onClick={() => setDraft({ date: toDateInput(new Date()), start: "09:00", end: "10:00" })}
+          style={btn(theme.accent, theme.accentInk)}
+        >
           + Add entry
         </button>
       </div>
@@ -57,15 +125,31 @@ export function Calendar() {
           }}
         >
           <div />
-          {grid.days.map((day) => (
-            <div key={day.key} style={{ padding: "10px 8px", textAlign: "center", borderLeft: `1px solid ${theme.border}` }}>
-              <div style={{ fontSize: 11, fontWeight: 700, color: theme.textFaint, letterSpacing: ".06em" }}>{day.weekday.toUpperCase()}</div>
-              <div style={{ fontSize: 13, fontWeight: 700, marginTop: 2 }}>{day.dateLabel}</div>
-              <div className="mono" style={{ fontSize: 11, color: theme.textMuted, marginTop: 2 }}>
-                {day.totalSeconds ? formatDuration(day.totalSeconds) : "—"}
+          {grid.days.map((day) => {
+            const isToday = day.key === todayKey;
+            return (
+              <div
+                key={day.key}
+                style={{
+                  padding: "10px 8px",
+                  textAlign: "center",
+                  borderLeft: `1px solid ${theme.border}`,
+                  background: isToday ? theme.accent + "18" : undefined,
+                }}
+              >
+                <div style={{ fontSize: 11, fontWeight: 700, color: isToday ? theme.accent : theme.textFaint, letterSpacing: ".06em" }}>
+                  {day.weekday.toUpperCase()}
+                </div>
+                <div style={{ fontSize: 13, fontWeight: 700, marginTop: 2, color: isToday ? theme.accent : theme.text }}>
+                  {day.dateLabel}
+                  {isToday ? " · Today" : ""}
+                </div>
+                <div className="mono" style={{ fontSize: 11, color: theme.textMuted, marginTop: 2 }}>
+                  {day.totalSeconds ? formatDuration(day.totalSeconds) : "—"}
+                </div>
               </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
 
         <div style={{ display: "grid", gridTemplateColumns: "64px repeat(7, minmax(120px, 1fr))" }}>
@@ -76,61 +160,71 @@ export function Calendar() {
               </div>
             ))}
           </div>
-          {grid.days.map((day) => (
-            <div
-              key={day.key}
-              style={{ position: "relative", borderLeft: `1px solid ${theme.border}`, height: hours.length * ROW_H }}
-              onDoubleClick={(e) => {
-                const rect = (e.currentTarget as HTMLDivElement).getBoundingClientRect();
-                const y = e.clientY - rect.top;
-                const hour = Math.min(HOUR_END - 1, HOUR_START + Math.floor(y / ROW_H));
-                setDraft({
-                  date: day.key,
-                  start: `${String(hour).padStart(2, "0")}:00`,
-                  end: `${String(Math.min(hour + 1, 23)).padStart(2, "0")}:00`,
-                });
-              }}
-            >
-              {hours.map((h) => (
-                <div key={h} style={{ height: ROW_H, borderBottom: `1px solid ${theme.border}` }} />
-              ))}
-              {day.entries.map((block) => {
-                const top = ((block.startMin - HOUR_START * 60) / 60) * ROW_H;
-                const height = Math.max(28, ((block.endMin - block.startMin) / 60) * ROW_H);
-                return (
-                  <button
-                    key={block.id}
-                    onClick={() => setEditId(block.id)}
-                    style={{
-                      position: "absolute",
-                      left: 4,
-                      right: 4,
-                      top: Math.max(0, top),
-                      height,
-                      overflow: "hidden",
-                      textAlign: "left",
-                      background: theme.surfaceAlt,
-                      border: `1px solid ${theme.border}`,
-                      borderLeft: `3px solid ${block.color}`,
-                      borderRadius: 8,
-                      padding: "6px 8px",
-                      cursor: "pointer",
-                      color: theme.text,
-                    }}
-                  >
-                    <div style={{ fontSize: 12, fontWeight: 700, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{block.desc}</div>
-                    <div style={{ fontSize: 11, color: theme.textMuted, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{block.project}</div>
-                    <div className="mono" style={{ fontSize: 10, color: theme.textFaint, marginTop: 2 }}>
-                      {block.dur}
-                    </div>
-                  </button>
-                );
-              })}
-            </div>
-          ))}
+          {grid.days.map((day) => {
+            const isToday = day.key === todayKey;
+            return (
+              <div
+                key={day.key}
+                style={{
+                  position: "relative",
+                  borderLeft: `1px solid ${theme.border}`,
+                  height: hours.length * ROW_H,
+                  background: isToday ? "rgba(91,189,126,0.04)" : undefined,
+                }}
+                onDoubleClick={(e) => {
+                  const rect = (e.currentTarget as HTMLDivElement).getBoundingClientRect();
+                  const y = e.clientY - rect.top;
+                  const hour = Math.min(HOUR_END - 1, HOUR_START + Math.floor(y / ROW_H));
+                  setDraft({
+                    date: day.key,
+                    start: `${String(hour).padStart(2, "0")}:00`,
+                    end: `${String(Math.min(hour + 1, 23)).padStart(2, "0")}:00`,
+                  });
+                }}
+              >
+                {hours.map((h) => (
+                  <div key={h} style={{ height: ROW_H, borderBottom: `1px solid ${theme.border}` }} />
+                ))}
+                {day.entries.map((block) => {
+                  const top = ((block.startMin - HOUR_START * 60) / 60) * ROW_H;
+                  const height = Math.max(28, ((block.endMin - block.startMin) / 60) * ROW_H);
+                  return (
+                    <button
+                      key={block.id}
+                      onClick={() => setEditId(block.id)}
+                      style={{
+                        position: "absolute",
+                        left: 4,
+                        right: 4,
+                        top: Math.max(0, top),
+                        height,
+                        overflow: "hidden",
+                        textAlign: "left",
+                        background: theme.surfaceAlt,
+                        border: `1px solid ${theme.border}`,
+                        borderLeft: `3px solid ${block.color}`,
+                        borderRadius: 8,
+                        padding: "6px 8px",
+                        cursor: "pointer",
+                        color: theme.text,
+                      }}
+                    >
+                      <div style={{ fontSize: 12, fontWeight: 700, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{block.desc}</div>
+                      <div style={{ fontSize: 11, color: theme.textMuted, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{block.project}</div>
+                      <div className="mono" style={{ fontSize: 10, color: theme.textFaint, marginTop: 2 }}>
+                        {block.dur}
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+            );
+          })}
         </div>
       </div>
-      <div style={{ fontSize: 12, color: theme.textFaint, marginTop: 8, flexShrink: 0 }}>Double-click an empty hour to add time.</div>
+      <div style={{ fontSize: 12, color: theme.textFaint, marginTop: 8, flexShrink: 0 }}>
+        Showing {toDateInput(weekStart)} → {toDateInput(weekEnd)}. Double-click an empty hour to add time. Use Jump to pick any day.
+      </div>
 
       {(draft || trackerEntry) && (
         <Modal
