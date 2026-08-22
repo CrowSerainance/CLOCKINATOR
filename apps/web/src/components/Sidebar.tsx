@@ -24,6 +24,7 @@ const tagIcon = strokeIcon("M20.6 13.4 12 22l-9-9 8.6-8.6a2 2 0 0 1 1.4-.4H19a2 
 const calIcon = strokeIcon("M4 7h16M7 3v4M17 3v4M5 11h14v10H5z");
 const checkIcon = strokeIcon("M9 11l3 3 8-8M5 19h14");
 const listIcon = strokeIcon("M8 6h12M8 12h12M8 18h12M4 6h.01M4 12h.01M4 18h.01");
+const invoiceIcon = strokeIcon("M6 2h9l5 5v15H6zM14 2v6h6");
 
 interface NavItem {
   id: Screen;
@@ -40,6 +41,7 @@ const NAV: NavItem[] = [
   { id: "projects", label: "Projects", group: "MANAGE", icon: folderIcon },
   { id: "clients", label: "Clients", group: "MANAGE", icon: usersIcon },
   { id: "tags", label: "Tags", group: "MANAGE", icon: tagIcon },
+  { id: "invoices", label: "Invoices", group: "MANAGE", icon: invoiceIcon },
   { id: "approvals", label: "Approvals", group: "REVIEW", icon: checkIcon },
   { id: "audit", label: "Audit Log", group: "REVIEW", icon: listIcon },
 ];

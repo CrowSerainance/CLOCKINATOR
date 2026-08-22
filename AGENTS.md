@@ -13,8 +13,8 @@ Self-hosted / **local-first** time operations. Inspired by Clockify **workflows*
 - **Running product:** Vite + React + TS (`apps/web`). SQLite via `sql.js`, persisted to IndexedDB. Schema: `db/migrations/001_init.sql`.
 - **Timer:** `src/domain/timer.ts` + `src/hooks/useTimer.ts` (start/pause/resume/stop/split/break).
 - **Python** `apps/api/timeops_core` is an in-memory sketch. Keep `python -m unittest discover -s tests` green. Do not wire the UI to it.
-- Timesheet / Approvals / Audit / Calendar / Clients / Tags are live from SQLite. Do not start kiosk, GPS, or SSO.
-- Clockify paid-grid status (Done / Engine / Schema / Partial / No / Skip): HANDOFF.md §3. Do not treat Partial or Engine as Done. Invoice UI is Stream J (tables exist), not banned.
+- Timesheet / Approvals / Audit / Calendar / Clients / Tags / Invoices are live from SQLite. Do not start kiosk, GPS, or SSO.
+- Clockify paid-grid status (Done / Engine / Schema / Partial / No / Skip): HANDOFF.md §3. Do not treat Partial or Engine as Done. PDF exports use shared summary layout (`domain/pdf.ts`).
 
 ## Rules
 

@@ -3,22 +3,88 @@ import { theme } from "../theme";
 import { useStore, useStoreRevision } from "../hooks/useClockinator";
 import { useDurationFormat } from "../hooks/useDurationFormat";
 import { formatDisplayDuration } from "../domain/preferences";
-import { addDays, formatHours, startOfLocalDay, startOfLocalWeek } from "../domain/duration";
-import { downloadBlob, downloadTextFile, textToPdf, toCsv } from "../domain/reports";
+import { addDays, startOfLocalDay, startOfLocalWeek, toDateInput } from "../domain/duration";
+import { downloadBlob, downloadTextFile, buildTimeSummaryPdf, toCsv } from "../domain/reports";
 import { btn, card, fieldStyle, pagePad } from "../components/ui";
+import { formatAmount } from "../domain/money";
 
-type RangePreset = "week" | "last7" | "last30";
+type RangePreset = "week" | "last7" | "last30" | "custom";
+
+function presetBounds(preset: Exclude<RangePreset, "custom">): { from: Date; toExclusive: Date } {
+  const now = new Date();
+  const toExclusive = addDays(startOfLocalDay(now), 1);
+  if (preset === "week") {
+    const from = startOfLocalWeek(now);
+    return { from, toExclusive: addDays(from, 7) };
+  }
+  if (preset === "last7") {
+    return { from: addDays(startOfLocalDay(now), -6), toExclusive };
+  }
+  return { from: addDays(startOfLocalDay(now), -29), toExclusive };
+}
+
+function labelRange(from: Date, toInclusive: Date): string {
+  const fmtDate = (d: Date) => d.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
+  return `${fmtDate(from)} – ${fmtDate(toInclusive)}`;
+}
+
+function parseDateInput(value: string): Date | null {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return null;
+  const [y, m, d] = value.split("-").map(Number);
+  const date = new Date(y, m - 1, d);
+  if (date.getFullYear() !== y || date.getMonth() !== m - 1 || date.getDate() !== d) return null;
+  return startOfLocalDay(date);
+}
 
 export function Reports() {
   const store = useStore();
   useStoreRevision();
   const [durationFormat, setDurationFormat] = useDurationFormat();
+  const initial = presetBounds("last30");
   const [preset, setPreset] = useState<RangePreset>("last30");
+  const [fromInput, setFromInput] = useState(() => toDateInput(initial.from));
+  const [toInput, setToInput] = useState(() => toDateInput(addDays(initial.toExclusive, -1)));
   const [tab, setTab] = useState<"summary" | "detailed">("summary");
   const [groupBy, setGroupBy] = useState<"project" | "description">("project");
   const [client, setClient] = useState("");
   const [project, setProject] = useState("");
-  const range = useMemo(() => rangeFor(preset), [preset]);
+
+  const range = useMemo(() => {
+    const from = parseDateInput(fromInput) ?? startOfLocalDay(new Date());
+    let toInclusive = parseDateInput(toInput) ?? startOfLocalDay(new Date());
+    if (toInclusive.getTime() < from.getTime()) toInclusive = from;
+    return {
+      from,
+      to: addDays(toInclusive, 1),
+      toInclusive,
+      label: labelRange(from, toInclusive),
+      invalid: !parseDateInput(fromInput) || !parseDateInput(toInput),
+    };
+  }, [fromInput, toInput]);
+
+  const applyPreset = (key: Exclude<RangePreset, "custom">) => {
+    const bounds = presetBounds(key);
+    setPreset(key);
+    setFromInput(toDateInput(bounds.from));
+    setToInput(toDateInput(addDays(bounds.toExclusive, -1)));
+  };
+
+  const setCustomFrom = (value: string) => {
+    setPreset("custom");
+    setFromInput(value);
+    const from = parseDateInput(value);
+    const to = parseDateInput(toInput);
+    if (from && to && to.getTime() < from.getTime()) setToInput(value);
+  };
+
+  const setCustomTo = (value: string) => {
+    setPreset("custom");
+    setToInput(value);
+    const from = parseDateInput(fromInput);
+    const to = parseDateInput(value);
+    if (from && to && to.getTime() < from.getTime()) setFromInput(value);
+  };
+
   const report = store.report(range.from.toISOString(), range.to.toISOString());
   const clients = store.listClients();
   const projects = store.listActiveProjects();
@@ -70,22 +136,78 @@ export function Reports() {
   };
 
   const exportPdf = () => {
-    const lines = [
-      `Range: ${range.label}`,
-      `Total: ${fmt(report.totalSeconds)}   Billable: ${fmt(report.billableSeconds)}   Amount: $${report.amount.toFixed(2)}`,
-      `Labor: $${report.laborCost.toFixed(2)}   Profit: $${report.profit.toFixed(2)}`,
-      "",
-      "By project",
-      ...report.groups.map((g) => `${g.title.padEnd(32, " ")} ${fmt(g.seconds)}  (${formatHours(g.seconds)}h)`),
-    ];
-    downloadBlob("clockinator-report.pdf", textToPdf("Clockinator report", lines));
+    const workRows = report.csvRows.filter((r) => r.kind === "work");
+    const byProject = new Map<string, { seconds: number; amount: number }>();
+    const byDescription = new Map<string, { seconds: number; amount: number }>();
+    const nested = new Map<string, { seconds: number; children: Map<string, { seconds: number; amount: number }> }>();
+
+    for (const row of workRows) {
+      if (project && row.project !== project) continue;
+      if (client) {
+        const match = projects.find((p) => p.name === row.project);
+        if ((match?.clientName ?? "") !== client) continue;
+      }
+      const seconds = Math.round(Number(row.duration_hours) * 3600);
+      const amount = row.billable ? (Number(row.duration_hours) * Number(row.billable_rate || 0)) : 0;
+      const projectTitle = row.project ?? "No project";
+      const descTitle = row.description || "(no description)";
+
+      const p = byProject.get(projectTitle) ?? { seconds: 0, amount: 0 };
+      p.seconds += seconds;
+      p.amount += amount;
+      byProject.set(projectTitle, p);
+
+      const d = byDescription.get(descTitle) ?? { seconds: 0, amount: 0 };
+      d.seconds += seconds;
+      d.amount += amount;
+      byDescription.set(descTitle, d);
+
+      const n = nested.get(projectTitle) ?? { seconds: 0, children: new Map() };
+      n.seconds += seconds;
+      const child = n.children.get(descTitle) ?? { seconds: 0, amount: 0 };
+      child.seconds += seconds;
+      child.amount += amount;
+      n.children.set(descTitle, child);
+      nested.set(projectTitle, n);
+    }
+
+    const totalSeconds = [...byProject.values()].reduce((s, v) => s + v.seconds, 0);
+    const totalAmount = [...byProject.values()].reduce((s, v) => s + v.amount, 0);
+
+    const blob = buildTimeSummaryPdf({
+      title: "Summary report",
+      from: range.from,
+      toExclusive: range.to,
+      totalSeconds,
+      subtitle: `Billable amount: $${formatAmount(totalAmount)} · Labor: $${formatAmount(report.laborCost)} · Profit: $${formatAmount(report.profit)}`,
+      byProject: [...byProject.entries()]
+        .map(([title, v]) => ({ title, seconds: v.seconds, amount: `$${formatAmount(v.amount)}` }))
+        .sort((a, b) => b.seconds - a.seconds),
+      byDescription: [...byDescription.entries()]
+        .map(([title, v]) => ({ title, seconds: v.seconds, amount: `$${formatAmount(v.amount)}` }))
+        .sort((a, b) => b.seconds - a.seconds),
+      nested: [...nested.entries()]
+        .map(([projectName, v]) => ({
+          project: projectName,
+          seconds: v.seconds,
+          children: [...v.children.entries()]
+            .map(([title, c]) => ({ title, seconds: c.seconds, amount: `$${formatAmount(c.amount)}` }))
+            .sort((a, b) => b.seconds - a.seconds),
+        }))
+        .sort((a, b) => b.seconds - a.seconds),
+      workspaceName: store.workspaceName,
+    });
+
+    const fromLabel = range.from.toISOString().slice(0, 10);
+    const toLabel = new Date(range.to.getTime() - 1).toISOString().slice(0, 10);
+    downloadBlob(`Clockinator_Time_Report_Summary_${fromLabel}_${toLabel}.pdf`, blob);
   };
 
   const donut = donutGradient(grouped);
 
   return (
     <div style={pagePad}>
-      <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 14, flexWrap: "wrap" }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12, flexWrap: "wrap" }}>
         <div style={{ fontSize: 22, fontWeight: 700, marginRight: 8 }}>Reports</div>
         <button onClick={() => setTab("summary")} style={btn(tab === "summary" ? theme.accent + "22" : "transparent", theme.text, { border: `1px solid ${tab === "summary" ? theme.accent + "55" : theme.border}` })}>
           Summary
@@ -93,17 +215,6 @@ export function Reports() {
         <button onClick={() => setTab("detailed")} style={btn(tab === "detailed" ? theme.accent + "22" : "transparent", theme.text, { border: `1px solid ${tab === "detailed" ? theme.accent + "55" : theme.border}` })}>
           Detailed
         </button>
-        {(["week", "last7", "last30"] as const).map((key) => (
-          <button
-            key={key}
-            onClick={() => setPreset(key)}
-            style={btn(preset === key ? theme.accent + "22" : theme.surfaceAlt, preset === key ? theme.text : theme.textMuted, {
-              border: `1px solid ${preset === key ? theme.accent + "55" : theme.border}`,
-            })}
-          >
-            {key === "week" ? "This week" : key === "last7" ? "Last 7 days" : "Last 30 days"}
-          </button>
-        ))}
         <div style={{ flex: 1 }} />
         <button
           onClick={() => setDurationFormat(durationFormat === "clock" ? "decimal" : "clock")}
@@ -111,13 +222,64 @@ export function Reports() {
         >
           {durationFormat === "clock" ? "h:mm:ss" : "0.00h"}
         </button>
-        <span style={{ fontSize: 13, color: theme.textMuted }}>{range.label}</span>
         <button onClick={exportCsv} style={btn(theme.surfaceAlt, theme.text)}>
           Export CSV
         </button>
         <button onClick={exportPdf} style={btn(theme.accent, theme.accentInk)}>
           Export PDF
         </button>
+      </div>
+
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: 10,
+          marginBottom: 12,
+          padding: "10px 12px",
+          background: theme.surface,
+          border: `1px solid ${theme.border}`,
+          borderRadius: 12,
+          flexWrap: "wrap",
+        }}
+      >
+        <span style={{ fontSize: 11, fontWeight: 700, color: theme.textFaint, letterSpacing: ".08em" }}>RANGE</span>
+        {(["week", "last7", "last30"] as const).map((key) => (
+          <button
+            key={key}
+            onClick={() => applyPreset(key)}
+            style={btn(preset === key ? theme.accent + "22" : theme.surfaceAlt, preset === key ? theme.text : theme.textMuted, {
+              border: `1px solid ${preset === key ? theme.accent + "55" : theme.border}`,
+              padding: "7px 12px",
+            })}
+          >
+            {key === "week" ? "This week" : key === "last7" ? "Last 7 days" : "Last 30 days"}
+          </button>
+        ))}
+        <span style={{ width: 1, height: 22, background: theme.border }} />
+        <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: theme.textMuted }}>
+          From
+          <input
+            type="date"
+            value={fromInput}
+            onChange={(e) => setCustomFrom(e.target.value)}
+            style={{ ...fieldStyle, padding: "6px 10px" }}
+          />
+        </label>
+        <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: theme.textMuted }}>
+          To
+          <input
+            type="date"
+            value={toInput}
+            min={fromInput}
+            onChange={(e) => setCustomTo(e.target.value)}
+            style={{ ...fieldStyle, padding: "6px 10px" }}
+          />
+        </label>
+        {preset === "custom" && (
+          <span style={{ fontSize: 11, fontWeight: 700, color: theme.accent, letterSpacing: ".04em" }}>CUSTOM</span>
+        )}
+        <span style={{ fontSize: 13, color: theme.textMuted, marginLeft: "auto" }}>{range.label}</span>
       </div>
 
       <div
@@ -322,26 +484,6 @@ export function Reports() {
       )}
     </div>
   );
-}
-
-function rangeFor(preset: RangePreset): { from: Date; to: Date; label: string } {
-  const now = new Date();
-  const to = addDays(startOfLocalDay(now), 1);
-  if (preset === "week") {
-    const from = startOfLocalWeek(now);
-    return { from, to: addDays(from, 7), label: labelRange(from, addDays(from, 6)) };
-  }
-  if (preset === "last7") {
-    const from = addDays(startOfLocalDay(now), -6);
-    return { from, to, label: labelRange(from, now) };
-  }
-  const from = addDays(startOfLocalDay(now), -29);
-  return { from, to, label: labelRange(from, now) };
-}
-
-function labelRange(from: Date, to: Date): string {
-  const fmtDate = (d: Date) => d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
-  return `${fmtDate(from)} – ${fmtDate(to)}`;
 }
 
 function donutGradient(groups: Array<{ color: string; seconds: number }>): string {

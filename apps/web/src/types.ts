@@ -6,6 +6,7 @@ export type Screen =
   | "projects"
   | "clients"
   | "tags"
+  | "invoices"
   | "approvals"
   | "audit";
 
@@ -132,6 +133,37 @@ export interface AuditRow {
   targetId: string;
   actor: string;
   createdAt: string;
+}
+
+export interface InvoiceListRow {
+  id: string;
+  number: string;
+  client: string;
+  clientId: string;
+  status: "draft" | "sent" | "paid" | "void";
+  issueDate: string;
+  dueDate: string | null;
+  currency: string;
+  hours: number;
+  amount: number;
+  lineCount: number;
+}
+
+export interface InvoiceLineRow {
+  id: string;
+  description: string;
+  project: string | null;
+  quantityHours: number;
+  rate: number;
+  amount: number;
+  timeEntryId: string | null;
+}
+
+export interface InvoiceDetail extends InvoiceListRow {
+  notes: string | null;
+  lines: InvoiceLineRow[];
+  rangeFrom: string | null;
+  rangeTo: string | null;
 }
 
 export interface DayGroup {
