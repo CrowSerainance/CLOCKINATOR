@@ -18,6 +18,8 @@ import type {
   CalendarDay,
   ClientRow,
   DayGroup,
+  InvoiceDetail,
+  InvoiceListRow,
   ProjectDraft,
   ProjectRow,
   ReportDay,
@@ -36,7 +38,7 @@ import {
   startOfLocalDay,
   startOfLocalWeek,
 } from "../domain/duration";
-import { formatRate } from "../domain/money";
+import { billableAmount, formatAmount, formatRate, parseAmount } from "../domain/money";
 import { savePersistedDb } from "./persist";
 import { seedIfEmpty } from "./seed";
 import type { SqlDatabase, SqlParam } from "./sql";
@@ -989,6 +991,212 @@ export class ClockinatorStore implements TimerEngineDb {
     );
     for (const row of rows) this.setApprovalStatus(row.id, "submitted");
     return rows.length;
+  }
+
+  listInvoices(): InvoiceListRow[] {
+    return this.all<{
+      id: string;
+      number: string;
+      client: string;
+      client_id: string;
+      status: InvoiceListRow["status"];
+      issue_date: string;
+      due_date: string | null;
+      currency: string;
+      hours: number | null;
+      amount: number | null;
+      line_count: number;
+    }>(
+      `SELECT i.id, i.number, c.name AS client, i.client_id, i.status, i.issue_date, i.due_date, i.currency,
+              COALESCE(SUM(CAST(l.quantity_hours AS REAL)), 0) AS hours,
+              COALESCE(SUM(CAST(l.amount AS REAL)), 0) AS amount,
+              COUNT(l.id) AS line_count
+       FROM invoices i
+       JOIN clients c ON c.id = i.client_id
+       LEFT JOIN invoice_lines l ON l.invoice_id = i.id
+       WHERE i.workspace_id = ?
+       GROUP BY i.id
+       ORDER BY i.issue_date DESC, i.number DESC`,
+      [this.workspaceId],
+    ).map((row) => ({
+      id: row.id,
+      number: row.number,
+      client: row.client,
+      clientId: row.client_id,
+      status: row.status,
+      issueDate: row.issue_date,
+      dueDate: row.due_date,
+      currency: row.currency,
+      hours: Number(row.hours ?? 0),
+      amount: Number(row.amount ?? 0),
+      lineCount: Number(row.line_count),
+    }));
+  }
+
+  getInvoice(invoiceId: string): InvoiceDetail | undefined {
+    const inv = this.get<{
+      id: string;
+      number: string;
+      client: string;
+      client_id: string;
+      status: InvoiceListRow["status"];
+      issue_date: string;
+      due_date: string | null;
+      currency: string;
+      notes: string | null;
+    }>(
+      `SELECT i.id, i.number, c.name AS client, i.client_id, i.status, i.issue_date, i.due_date, i.currency, i.notes
+       FROM invoices i JOIN clients c ON c.id = i.client_id WHERE i.id = ? AND i.workspace_id = ?`,
+      [invoiceId, this.workspaceId],
+    );
+    if (!inv) return undefined;
+    const lines = this.all<{
+      id: string;
+      description: string;
+      project: string | null;
+      quantity_hours: string;
+      rate: string;
+      amount: string;
+      time_entry_id: string | null;
+    }>(
+      `SELECT l.id, l.description, p.name AS project, l.quantity_hours, l.rate, l.amount, l.time_entry_id
+       FROM invoice_lines l
+       LEFT JOIN time_entries e ON e.id = l.time_entry_id
+       LEFT JOIN projects p ON p.id = e.project_id
+       WHERE l.invoice_id = ?
+       ORDER BY l.sort_order, l.id`,
+      [invoiceId],
+    ).map((row) => ({
+      id: row.id,
+      description: row.description,
+      project: row.project,
+      quantityHours: parseAmount(row.quantity_hours),
+      rate: parseAmount(row.rate),
+      amount: parseAmount(row.amount),
+      timeEntryId: row.time_entry_id,
+    }));
+    const hours = lines.reduce((s, l) => s + l.quantityHours, 0);
+    const amount = lines.reduce((s, l) => s + l.amount, 0);
+    const entryBounds = this.get<{ min_start: string | null; max_end: string | null }>(
+      `SELECT MIN(e.start_at) AS min_start, MAX(e.end_at) AS max_end
+       FROM invoice_lines l JOIN time_entries e ON e.id = l.time_entry_id
+       WHERE l.invoice_id = ?`,
+      [invoiceId],
+    );
+    return {
+      id: inv.id,
+      number: inv.number,
+      client: inv.client,
+      clientId: inv.client_id,
+      status: inv.status,
+      issueDate: inv.issue_date,
+      dueDate: inv.due_date,
+      currency: inv.currency,
+      notes: inv.notes,
+      hours,
+      amount,
+      lineCount: lines.length,
+      lines,
+      rangeFrom: entryBounds?.min_start ?? null,
+      rangeTo: entryBounds?.max_end ?? null,
+    };
+  }
+
+  /** Draft invoice from approved/locked billable entries for a client in [from, toExclusive). */
+  createInvoiceFromRange(input: { clientId: string; from: Date; toExclusive: Date; notes?: string }): string {
+    const client = this.get<{ id: string; name: string }>(
+      `SELECT id, name FROM clients WHERE id = ? AND workspace_id = ?`,
+      [input.clientId, this.workspaceId],
+    );
+    if (!client) throw new Error("Unknown client");
+
+    const entries = this.all<{
+      id: string;
+      description: string;
+      project_name: string | null;
+      duration_seconds: number;
+      billable_rate_snapshot: string;
+      start_at: string;
+    }>(
+      `SELECT e.id, e.description, p.name AS project_name, e.duration_seconds, e.billable_rate_snapshot, e.start_at
+       FROM time_entries e
+       JOIN projects p ON p.id = e.project_id
+       WHERE e.workspace_id = ? AND e.deleted_at IS NULL AND e.kind = 'work' AND e.end_at IS NOT NULL
+         AND e.is_billable = 1 AND e.approval_status != 'rejected'
+         AND p.client_id = ?
+         AND e.start_at >= ? AND e.start_at < ?
+         AND e.id NOT IN (SELECT time_entry_id FROM invoice_lines WHERE time_entry_id IS NOT NULL)
+       ORDER BY e.start_at`,
+      [this.workspaceId, input.clientId, input.from.toISOString(), input.toExclusive.toISOString()],
+    );
+    if (entries.length === 0) {
+      throw new Error("No billable entries for this client in range (or they are already invoiced).");
+    }
+
+    const at = this.now().toISOString();
+    const issueDate = at.slice(0, 10);
+    const seq =
+      (this.get<{ n: number }>(`SELECT COUNT(*) AS n FROM invoices WHERE workspace_id = ?`, [this.workspaceId])?.n ?? 0) + 1;
+    const number = `INV-${String(seq).padStart(4, "0")}`;
+    const invoiceId = this.newId();
+    const currency =
+      this.get<{ currency: string }>(`SELECT currency FROM workspaces WHERE id = ?`, [this.workspaceId])?.currency ?? "USD";
+
+    this.run(
+      `INSERT INTO invoices (id, workspace_id, client_id, number, status, issue_date, due_date, currency, notes, created_at)
+       VALUES (?, ?, ?, ?, 'draft', ?, NULL, ?, ?, ?)`,
+      [invoiceId, this.workspaceId, input.clientId, number, issueDate, currency, input.notes?.trim() || null, at],
+    );
+
+    let sort = 0;
+    for (const entry of entries) {
+      const project = entry.project_name ?? "No project";
+      const desc = entry.description.trim() || "(no description)";
+      const hours = Number(entry.duration_seconds) / 3600;
+      const rate = entry.billable_rate_snapshot || "0";
+      const amount = billableAmount(Number(entry.duration_seconds), rate);
+      this.run(
+        `INSERT INTO invoice_lines (id, invoice_id, time_entry_id, description, quantity_hours, rate, amount, sort_order)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          this.newId(),
+          invoiceId,
+          entry.id,
+          `${project} — ${desc}`,
+          formatAmount(hours),
+          formatAmount(parseAmount(rate)),
+          amount,
+          sort++,
+        ],
+      );
+    }
+
+    this.audit("invoice.created", "invoice", invoiceId, { number, client: client.name, lines: entries.length });
+    this.touch();
+    return invoiceId;
+  }
+
+  setInvoiceStatus(invoiceId: string, status: InvoiceListRow["status"]): void {
+    this.run(`UPDATE invoices SET status = ? WHERE id = ? AND workspace_id = ?`, [status, invoiceId, this.workspaceId]);
+    this.audit(`invoice.${status}`, "invoice", invoiceId);
+    this.touch();
+  }
+
+  /** Billable approved entries available to invoice for a client/range (count). */
+  countInvoiceableEntries(clientId: string, from: Date, toExclusive: Date): number {
+    return (
+      this.get<{ n: number }>(
+        `SELECT COUNT(*) AS n
+         FROM time_entries e
+         JOIN projects p ON p.id = e.project_id
+         WHERE e.workspace_id = ? AND e.deleted_at IS NULL AND e.kind = 'work' AND e.end_at IS NOT NULL
+           AND e.is_billable = 1 AND e.approval_status != 'rejected'
+           AND p.client_id = ?
+           AND e.start_at >= ? AND e.start_at < ?
+           AND e.id NOT IN (SELECT time_entry_id FROM invoice_lines WHERE time_entry_id IS NOT NULL)`,
+        [this.workspaceId, clientId, from.toISOString(), toExclusive.toISOString()],
+      )?.n ?? 0
+    );
   }
 
   calendarWeek(at = this.now()): { days: CalendarDay[]; weekTotal: number } {
