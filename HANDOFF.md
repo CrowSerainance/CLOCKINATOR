@@ -322,7 +322,7 @@ Elapsed work = sum of completed work durations + live work period. Break clock i
 - IndexedDB holds the whole sqlite file. Single-tab assumed; no `navigator.locks` yet.
 - **sql.js browser ESM has no default export.** Load `sql.js/dist/sql-asm.js` after React paints (`src/db/client.ts` + dynamic import in `useClockinator.tsx`). Do not `import initSqlJs from "sql.js"` in the renderer — that whitescreens `#root`.
 - `sql.js` WASM is ~650KB. Keep it the only native-ish dep until a desktop adapter exists.
-- PDF exports use multi-page Helvetica summary layout (`domain/pdf.ts`) — matches Clockify summary-report structure, branded Clockinator. Not a full invoice designer.
+- PDF exports use a multi-page Helvetica summary layout (`domain/pdf.ts`) with accent bar, bold headings, column headers, zebra rows, and right-aligned Duration/Share/Amount — Clockify-shaped, Clockinator-branded.
 - Python domain has **no** pause/split/break. TS is ahead. Do not “fix” the UI by calling Python.
 - `RunningBar` demo (`useState(2537)`) was removed; do not bring it back.
 - Project tracked hours are **real sums**, not the old mockup’s 68.2h fixtures.
