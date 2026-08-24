@@ -32,6 +32,9 @@ describe("summary PDF export", () => {
     expect(text).toContain("Summary report");
     expect(text).toContain("Created with Clockinator");
     expect(text).toContain("Northwind Studio");
+    expect(text).toContain("Helvetica-Bold");
+    expect(text).toContain("Duration");
+    expect(text).toContain("Share");
     // more than one page content stream for long description list
     expect((text.match(/\/Type \/Page /g) ?? []).length).toBeGreaterThan(1);
   });
