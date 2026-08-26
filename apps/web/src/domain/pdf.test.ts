@@ -59,5 +59,31 @@ describe("summary PDF export", () => {
     expect(text).toContain("Project");
     expect(text).toContain("Description");
     expect(text).toContain("23/06/2026");
+    expect(text).toContain("Overview");
+  });
+
+  it("includes Overview charts when daily bars are provided", async () => {
+    const blob = buildTimeSummaryPdf({
+      from: new Date(2026, 5, 23),
+      toExclusive: new Date(2026, 6, 23),
+      totalSeconds: 7200,
+      byProject: [
+        { title: "Alpha", seconds: 4800, color: "#57b6b0" },
+        { title: "Beta", seconds: 2400, color: "#5bbd7e" },
+      ],
+      byDescription: [{ title: "Work", seconds: 7200 }],
+      nested: [{ project: "Alpha", seconds: 4800, children: [{ title: "Work", seconds: 4800 }] }],
+      daily: [
+        { label: "Mon, Jun 23", seconds: 3600, stacks: [{ color: "#57b6b0", seconds: 3600 }] },
+        { label: "Tue, Jun 24", seconds: 3600, stacks: [{ color: "#5bbd7e", seconds: 2400 }, { color: "#57b6b0", seconds: 1200 }] },
+      ],
+      workspaceName: "Northwind Studio",
+    });
+    const text = new TextDecoder("latin1").decode(await blob.arrayBuffer());
+    expect(text).toContain("Overview");
+    expect(text).toContain("Time by day");
+    expect(text).toContain("Alpha");
+    // vector pie wedges + bar rects present as path/rect fill ops
+    expect(text).toMatch(/\d+\.\d+ \d+\.\d+ m/);
   });
 });

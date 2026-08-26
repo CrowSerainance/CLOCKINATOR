@@ -43,17 +43,26 @@ export function buildTimeSummaryPdf(input: {
   toExclusive: Date;
   totalSeconds: number;
   subtitle?: string;
-  byProject: Array<{ title: string; seconds: number; amount?: string }>;
+  byProject: Array<{ title: string; seconds: number; amount?: string; color?: string }>;
   byDescription: Array<{ title: string; seconds: number; amount?: string }>;
   /** Nested: project → descriptions */
   nested: Array<{ project: string; seconds: number; children: Array<{ title: string; seconds: number; amount?: string }> }>;
   workspaceName: string;
+  /** Daily bars for the Overview chart (Reports). */
+  daily?: Array<{ label: string; seconds: number; stacks?: Array<{ color: string; seconds: number }> }>;
 }): Blob {
   const toInclusive = new Date(input.toExclusive.getTime() - 1);
   const sections: PdfSection[] = [
     {
       heading: "Project",
-      rows: withPercents(input.byProject.map((p) => ({ label: p.title, durationSeconds: p.seconds, amount: p.amount }))),
+      rows: withPercents(
+        input.byProject.map((p) => ({
+          label: p.title,
+          durationSeconds: p.seconds,
+          amount: p.amount,
+          color: p.color,
+        })),
+      ),
     },
     {
       heading: "Description",
@@ -80,5 +89,9 @@ export function buildTimeSummaryPdf(input: {
     subtitle: input.subtitle,
     sections,
     workspaceName: input.workspaceName,
+    charts: {
+      pie: input.byProject.map((p) => ({ label: p.title, seconds: p.seconds, color: p.color })),
+      bars: input.daily,
+    },
   });
 }

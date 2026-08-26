@@ -9,11 +9,25 @@ export interface PdfRow {
   amount?: string;
   /** Indent nested description under a project */
   indent?: boolean;
+  /** Optional swatch color for legend / charts */
+  color?: string;
 }
 
 export interface PdfSection {
   heading: string;
   rows: PdfRow[];
+}
+
+export interface PdfPieSlice {
+  label: string;
+  seconds: number;
+  color?: string;
+}
+
+export interface PdfBarDay {
+  label: string;
+  seconds: number;
+  stacks?: Array<{ color: string; seconds: number }>;
 }
 
 export interface SummaryPdfInput {
@@ -27,6 +41,11 @@ export interface SummaryPdfInput {
   workspaceName: string;
   /** Defaults to "Created with Clockinator" */
   brandLine?: string;
+  /** Optional charts drawn under the header (Reports). */
+  charts?: {
+    pie?: PdfPieSlice[];
+    bars?: PdfBarDay[];
+  };
 }
 
 const PAGE_W = 612;
@@ -43,6 +62,9 @@ const INK = { r: 0.12, g: 0.11, b: 0.1 };
 const MUTED = { r: 0.45, g: 0.43, b: 0.4 };
 const RULE = { r: 0.86, g: 0.84, b: 0.81 };
 const ZEBRA = { r: 0.965, g: 0.96, b: 0.95 };
+const PAPER = { r: 1, g: 1, b: 1 };
+
+const DEFAULT_PALETTE = ["#57b6b0", "#5bbd7e", "#e0b15c", "#b58fd6", "#e08585", "#7aa6e0", "#c4a484", "#6bb3a8"];
 
 const COL_AMOUNT_R = CONTENT_RIGHT;
 const COL_PERCENT_R = CONTENT_RIGHT - 78;
@@ -50,10 +72,12 @@ const COL_DURATION_R = CONTENT_RIGHT - 148;
 const COL_LABEL_R = COL_DURATION_R - 16;
 
 type FontId = "F1" | "F2"; // Helvetica / Helvetica-Bold
+type Rgb = { r: number; g: number; b: number };
 
 type DrawOp =
-  | { kind: "rect"; x: number; y: number; w: number; h: number; fill: { r: number; g: number; b: number } }
-  | { kind: "line"; x1: number; y1: number; x2: number; y2: number; stroke: { r: number; g: number; b: number }; width?: number }
+  | { kind: "rect"; x: number; y: number; w: number; h: number; fill: Rgb }
+  | { kind: "line"; x1: number; y1: number; x2: number; y2: number; stroke: Rgb; width?: number }
+  | { kind: "path"; commands: string; fill: Rgb }
   | {
       kind: "text";
       x: number;
@@ -61,12 +85,22 @@ type DrawOp =
       text: string;
       size: number;
       font: FontId;
-      color: { r: number; g: number; b: number };
+      color: Rgb;
       align?: "left" | "right";
     };
 
 function escapePdf(s: string): string {
   return s.replace(/\\/g, "\\\\").replace(/\(/g, "\\(").replace(/\)/g, "\\)");
+}
+
+function hexToRgb(hex: string | undefined, fallbackIndex = 0): Rgb {
+  const raw = (hex ?? DEFAULT_PALETTE[fallbackIndex % DEFAULT_PALETTE.length]).replace("#", "");
+  if (raw.length !== 6) return ACCENT;
+  return {
+    r: parseInt(raw.slice(0, 2), 16) / 255,
+    g: parseInt(raw.slice(2, 4), 16) / 255,
+    b: parseInt(raw.slice(4, 6), 16) / 255,
+  };
 }
 
 /** Approximate Helvetica advance widths (ASCII). Good enough for clipping + right-align. */
@@ -111,9 +145,12 @@ function opsToStream(ops: DrawOp[]): string {
       cmds.push(`${op.stroke.r} ${op.stroke.g} ${op.stroke.b} RG`);
       cmds.push(`${op.width ?? 0.6} w`);
       cmds.push(`${op.x1.toFixed(2)} ${op.y1.toFixed(2)} m ${op.x2.toFixed(2)} ${op.y2.toFixed(2)} l S`);
+    } else if (op.kind === "path") {
+      cmds.push(`${op.fill.r} ${op.fill.g} ${op.fill.b} rg`);
+      cmds.push(op.commands);
+      cmds.push("f");
     } else {
-      const x =
-        op.align === "right" ? op.x - textWidth(op.text, op.size, op.font === "F2") : op.x;
+      const x = op.align === "right" ? op.x - textWidth(op.text, op.size, op.font === "F2") : op.x;
       cmds.push("BT");
       cmds.push(`/${op.font} ${op.size} Tf`);
       cmds.push(`${op.color.r} ${op.color.g} ${op.color.b} rg`);
@@ -133,9 +170,166 @@ function sectionHasPercents(rows: PdfRow[]): boolean {
   return rows.some((r) => r.percent != null);
 }
 
+/** Pie wedge as a triangle fan along the arc (PDF has no native arc). Sweep may be negative (clockwise). */
+function pieSlicePath(cx: number, cy: number, r: number, startAngle: number, sweep: number): string {
+  if (Math.abs(sweep) <= 0.0001) return "";
+  const steps = Math.max(4, Math.ceil((Math.abs(sweep) / (Math.PI / 2)) * 8));
+  const parts = [`${cx.toFixed(2)} ${cy.toFixed(2)} m`];
+  for (let i = 0; i <= steps; i++) {
+    const t = startAngle + (sweep * i) / steps;
+    const x = cx + Math.cos(t) * r;
+    const y = cy + Math.sin(t) * r;
+    parts.push(`${x.toFixed(2)} ${y.toFixed(2)} l`);
+  }
+  parts.push("h");
+  return parts.join(" ");
+}
+
+function drawCharts(
+  ops: DrawOp[],
+  charts: NonNullable<SummaryPdfInput["charts"]>,
+  startY: number,
+  totalSeconds: number,
+): number {
+  const pie = (charts.pie ?? []).filter((s) => s.seconds > 0).slice(0, 8);
+  const bars = charts.bars ?? [];
+  if (!pie.length && !bars.length) return startY;
+
+  let y = startY;
+  const chartH = 150;
+
+  ops.push({ kind: "rect", x: MARGIN_X, y: y - 2, w: 3, h: 12, fill: ACCENT });
+  ops.push({ kind: "text", x: MARGIN_X + 10, y: y, text: "Overview", size: 12, font: "F2", color: INK });
+  y -= 16;
+  ops.push({ kind: "line", x1: MARGIN_X, y1: y, x2: CONTENT_RIGHT, y2: y, stroke: RULE, width: 0.5 });
+  y -= 12;
+
+  const blockBottom = y - chartH;
+  const midX = MARGIN_X + CONTENT_WIDTH * 0.42;
+
+  if (pie.length) {
+    const cx = MARGIN_X + 78;
+    const cy = blockBottom + chartH / 2 + 4;
+    const outerR = 52;
+    const innerR = 28;
+    const total = pie.reduce((s, p) => s + p.seconds, 0) || 1;
+    let angle = Math.PI / 2;
+    for (let i = 0; i < pie.length; i++) {
+      const slice = pie[i];
+      const sweep = -((slice.seconds / total) * Math.PI * 2);
+      const path = pieSlicePath(cx, cy, outerR, angle, sweep);
+      if (path) ops.push({ kind: "path", commands: path, fill: hexToRgb(slice.color, i) });
+      angle += sweep;
+    }
+    ops.push({
+      kind: "path",
+      commands: pieSlicePath(cx, cy, innerR, 0, Math.PI * 2),
+      fill: PAPER,
+    });
+    const centerLabel = formatDuration(Math.max(0, Math.round(totalSeconds || total)));
+    const centerW = textWidth(centerLabel, 8, true);
+    ops.push({
+      kind: "text",
+      x: cx - centerW / 2,
+      y: cy - 3,
+      text: centerLabel,
+      size: 8,
+      font: "F2",
+      color: INK,
+    });
+
+    let legendY = cy + outerR - 4;
+    const legendX = cx + outerR + 16;
+    for (let i = 0; i < pie.length; i++) {
+      const slice = pie[i];
+      const pct = (slice.seconds / total) * 100;
+      ops.push({ kind: "rect", x: legendX, y: legendY - 2, w: 8, h: 8, fill: hexToRgb(slice.color, i) });
+      ops.push({
+        kind: "text",
+        x: legendX + 12,
+        y: legendY,
+        text: clipLabel(`${slice.label}  ${formatPercent(pct)}`, midX - legendX - 24, 8),
+        size: 8,
+        font: "F1",
+        color: INK,
+      });
+      legendY -= 14;
+    }
+  }
+
+  if (bars.length) {
+    const barLeft = pie.length ? midX + 8 : MARGIN_X;
+    const barRight = CONTENT_RIGHT;
+    const barWidth = barRight - barLeft;
+    const barAreaBottom = blockBottom + 18;
+    const barAreaTop = y - 4;
+    const barAreaH = barAreaTop - barAreaBottom;
+    const maxSeconds = Math.max(1, ...bars.map((b) => b.seconds));
+    const gap = 2;
+    const slot = Math.max(3, (barWidth - gap * Math.max(0, bars.length - 1)) / bars.length);
+
+    ops.push({
+      kind: "text",
+      x: barLeft,
+      y: barAreaTop + 10,
+      text: "Time by day",
+      size: 8,
+      font: "F2",
+      color: MUTED,
+    });
+
+    bars.forEach((day, i) => {
+      const x = barLeft + i * (slot + gap);
+      const h = Math.max(day.seconds ? 2 : 0, (day.seconds / maxSeconds) * (barAreaH - 4));
+      const stacks =
+        day.stacks && day.stacks.length
+          ? day.stacks.filter((s) => s.seconds > 0)
+          : day.seconds
+            ? [{ color: DEFAULT_PALETTE[i % DEFAULT_PALETTE.length], seconds: day.seconds }]
+            : [];
+      const stackTotal = stacks.reduce((s, st) => s + st.seconds, 0) || day.seconds || 1;
+      let stacked = 0;
+      for (const st of stacks) {
+        const sh = (st.seconds / stackTotal) * h;
+        ops.push({
+          kind: "rect",
+          x,
+          y: barAreaBottom + stacked,
+          w: Math.max(2, slot - 1),
+          h: Math.max(st.seconds ? 1 : 0, sh),
+          fill: hexToRgb(st.color, i),
+        });
+        stacked += sh;
+      }
+    });
+
+    ops.push({
+      kind: "text",
+      x: barLeft,
+      y: blockBottom + 4,
+      text: clipLabel(bars[0]?.label ?? "", 70, 7),
+      size: 7,
+      font: "F1",
+      color: MUTED,
+    });
+    ops.push({
+      kind: "text",
+      x: barRight,
+      y: blockBottom + 4,
+      text: clipLabel(bars[bars.length - 1]?.label ?? "", 70, 7),
+      size: 7,
+      font: "F1",
+      color: MUTED,
+      align: "right",
+    });
+  }
+
+  return blockBottom - 18;
+}
+
 /**
  * Multi-page summary PDF: Clockify-shaped structure with Clockinator visual polish —
- * accent bar, bold headings, column headers, zebra rows, aligned Duration / Share / Amount.
+ * accent bar, charts (donut + daily bars), bold headings, column headers, zebra rows.
  */
 export function buildSummaryPdf(input: SummaryPdfInput): Blob {
   const brand = input.brandLine ?? "Created with Clockinator";
@@ -144,7 +338,6 @@ export function buildSummaryPdf(input: SummaryPdfInput): Blob {
   let y = PAGE_H - MARGIN_TOP;
 
   const flushPage = () => {
-    // Footer rule + text
     ops.push({ kind: "line", x1: MARGIN_X, y1: 36, x2: CONTENT_RIGHT, y2: 36, stroke: RULE, width: 0.5 });
     ops.push({
       kind: "text",
@@ -168,6 +361,9 @@ export function buildSummaryPdf(input: SummaryPdfInput): Blob {
     pages.push(ops);
     ops = [];
     y = PAGE_H - MARGIN_TOP;
+    // Accent on continued pages
+    ops.push({ kind: "rect", x: 0, y: PAGE_H - 8, w: PAGE_W, h: 8, fill: ACCENT });
+    y -= 4;
   };
 
   const ensureSpace = (needed: number) => {
@@ -200,6 +396,11 @@ export function buildSummaryPdf(input: SummaryPdfInput): Blob {
   ops.push({ kind: "line", x1: MARGIN_X, y1: y, x2: CONTENT_RIGHT, y2: y, stroke: RULE, width: 0.8 });
   y -= 20;
 
+  if (input.charts && ((input.charts.pie?.length ?? 0) > 0 || (input.charts.bars?.length ?? 0) > 0)) {
+    ensureSpace(180);
+    y = drawCharts(ops, input.charts, y, input.totalSeconds);
+  }
+
   for (const section of input.sections) {
     const showPct = sectionHasPercents(section.rows);
     const showAmt = sectionHasAmounts(section.rows);
@@ -208,7 +409,6 @@ export function buildSummaryPdf(input: SummaryPdfInput): Blob {
 
     ensureSpace(headerBlock + rowH * Math.min(2, Math.max(1, section.rows.length)));
 
-    // Section heading with accent tick
     ops.push({ kind: "rect", x: MARGIN_X, y: y - 2, w: 3, h: 12, fill: ACCENT });
     ops.push({
       kind: "text",
@@ -223,7 +423,6 @@ export function buildSummaryPdf(input: SummaryPdfInput): Blob {
     ops.push({ kind: "line", x1: MARGIN_X, y1: y, x2: CONTENT_RIGHT, y2: y, stroke: RULE, width: 0.5 });
     y -= 14;
 
-    // Column headers
     ops.push({ kind: "text", x: MARGIN_X, y: y, text: "Name", size: 8, font: "F2", color: MUTED });
     ops.push({
       kind: "text",
@@ -288,15 +487,27 @@ export function buildSummaryPdf(input: SummaryPdfInput): Blob {
       }
 
       const indent = row.indent ? 14 : 0;
-      const labelMax = COL_LABEL_R - MARGIN_X - indent - 4;
-      const label = clipLabel((row.indent ? "" : "") + row.label, labelMax, 10, !row.indent && !row.percent);
+      let labelX = MARGIN_X + indent;
+      if (row.color && !row.indent) {
+        ops.push({
+          kind: "rect",
+          x: labelX,
+          y: textY - 1,
+          w: 7,
+          h: 7,
+          fill: hexToRgb(row.color, index),
+        });
+        labelX += 11;
+      }
+      const labelMax = COL_LABEL_R - labelX - 4;
+      const label = clipLabel(row.label, labelMax, 10);
       ops.push({
         kind: "text",
-        x: MARGIN_X + indent,
+        x: labelX,
         y: textY,
         text: label,
         size: 10,
-        font: row.indent ? "F1" : "F1",
+        font: "F1",
         color: row.indent ? MUTED : INK,
       });
 
@@ -339,7 +550,6 @@ export function buildSummaryPdf(input: SummaryPdfInput): Blob {
       }
 
       y = rowTop - rowH;
-      void rowBottom;
     });
 
     y -= 16;
@@ -422,7 +632,7 @@ export function textToPdf(title: string, lines: string[]): Blob {
 }
 
 export function withPercents(
-  rows: Array<{ label: string; durationSeconds: number; amount?: string; indent?: boolean }>,
+  rows: Array<{ label: string; durationSeconds: number; amount?: string; indent?: boolean; color?: string }>,
 ): PdfRow[] {
   const total = rows.reduce((s, r) => s + r.durationSeconds, 0) || 1;
   return rows.map((r) => ({
