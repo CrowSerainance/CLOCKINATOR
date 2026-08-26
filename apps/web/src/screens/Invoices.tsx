@@ -59,7 +59,13 @@ export function Invoices() {
             key={row.id}
             row={row}
             onOpen={() => setDetail(store.getInvoice(row.id) ?? null)}
-            onExport={() => exportInvoicePdf(store.getInvoice(row.id), store.workspaceName)}
+            onExport={() =>
+              exportInvoicePdf(
+                store.getInvoice(row.id),
+                store.workspaceName,
+                store.listActiveProjects().map((p) => [p.name, p.color ?? "#7d776e"]),
+              )
+            }
             onStatus={(status) => store.setInvoiceStatus(row.id, status)}
           />
         ))}
@@ -89,6 +95,7 @@ export function Invoices() {
           <InvoiceDetailPanel
             invoice={detail}
             workspaceName={store.workspaceName}
+            projectColors={store.listActiveProjects().map((p) => [p.name, p.color ?? "#7d776e"] as [string, string])}
             onClose={() => setDetail(null)}
             onStatus={(status) => {
               store.setInvoiceStatus(detail.id, status);
@@ -217,11 +224,13 @@ function CreateInvoiceForm({
 function InvoiceDetailPanel({
   invoice,
   workspaceName,
+  projectColors,
   onClose,
   onStatus,
 }: {
   invoice: InvoiceDetail;
   workspaceName: string;
+  projectColors: Array<[string, string]>;
   onClose: () => void;
   onStatus: (s: InvoiceListRow["status"]) => void;
 }) {
@@ -264,7 +273,7 @@ function InvoiceDetailPanel({
         <button onClick={onClose} style={btn(theme.surfaceAlt, theme.text)}>
           Close
         </button>
-        <button onClick={() => exportInvoicePdf(invoice, workspaceName)} style={btn(theme.accent, theme.accentInk)}>
+        <button onClick={() => exportInvoicePdf(invoice, workspaceName, projectColors)} style={btn(theme.accent, theme.accentInk)}>
           Export PDF
         </button>
       </div>
@@ -272,8 +281,13 @@ function InvoiceDetailPanel({
   );
 }
 
-function exportInvoicePdf(invoice: InvoiceDetail | undefined | null, workspaceName: string): void {
+function exportInvoicePdf(
+  invoice: InvoiceDetail | undefined | null,
+  workspaceName: string,
+  projectColors: Array<[string, string]> = [],
+): void {
   if (!invoice) return;
+  const colorByProject = new Map(projectColors);
   const byProject = new Map<string, { seconds: number; amount: number }>();
   const byDescription = new Map<string, { seconds: number; amount: number }>();
   const nested = new Map<string, { seconds: number; children: Map<string, { seconds: number; amount: number }> }>();
@@ -313,7 +327,12 @@ function exportInvoicePdf(invoice: InvoiceDetail | undefined | null, workspaceNa
     totalSeconds: Math.round(invoice.hours * 3600),
     subtitle: `Client: ${invoice.client} · Amount: $${moneyFmt(invoice.amount)} · Status: ${invoice.status}`,
     byProject: [...byProject.entries()]
-      .map(([title, v]) => ({ title, seconds: v.seconds, amount: `$${moneyFmt(v.amount)}` }))
+      .map(([title, v]) => ({
+        title,
+        seconds: v.seconds,
+        amount: `$${moneyFmt(v.amount)}`,
+        color: colorByProject.get(title) ?? "#7d776e",
+      }))
       .sort((a, b) => b.seconds - a.seconds),
     byDescription: [...byDescription.entries()]
       .map(([title, v]) => ({ title, seconds: v.seconds, amount: `$${moneyFmt(v.amount)}` }))

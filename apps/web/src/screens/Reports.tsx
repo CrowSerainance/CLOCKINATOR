@@ -173,6 +173,23 @@ export function Reports() {
 
     const totalSeconds = [...byProject.values()].reduce((s, v) => s + v.seconds, 0);
     const totalAmount = [...byProject.values()].reduce((s, v) => s + v.amount, 0);
+    const colorByProject = new Map(report.groups.map((g) => [g.title, g.color]));
+
+    const daily = report.daily.map((day) => {
+      let stacks = day.stacks;
+      if (project) stacks = stacks.filter((s) => s.title === project);
+      else if (client) {
+        stacks = stacks.filter((s) => {
+          const match = projects.find((p) => p.name === s.title);
+          return (match?.clientName ?? "") === client;
+        });
+      }
+      return {
+        label: day.label,
+        seconds: stacks.reduce((s, st) => s + st.seconds, 0),
+        stacks: stacks.map((s) => ({ color: s.color, seconds: s.seconds })),
+      };
+    });
 
     const blob = buildTimeSummaryPdf({
       title: "Summary report",
@@ -181,7 +198,12 @@ export function Reports() {
       totalSeconds,
       subtitle: `Billable amount: $${formatAmount(totalAmount)} · Labor: $${formatAmount(report.laborCost)} · Profit: $${formatAmount(report.profit)}`,
       byProject: [...byProject.entries()]
-        .map(([title, v]) => ({ title, seconds: v.seconds, amount: `$${formatAmount(v.amount)}` }))
+        .map(([title, v]) => ({
+          title,
+          seconds: v.seconds,
+          amount: `$${formatAmount(v.amount)}`,
+          color: colorByProject.get(title),
+        }))
         .sort((a, b) => b.seconds - a.seconds),
       byDescription: [...byDescription.entries()]
         .map(([title, v]) => ({ title, seconds: v.seconds, amount: `$${formatAmount(v.amount)}` }))
@@ -195,6 +217,7 @@ export function Reports() {
             .sort((a, b) => b.seconds - a.seconds),
         }))
         .sort((a, b) => b.seconds - a.seconds),
+      daily,
       workspaceName: store.workspaceName,
     });
 
