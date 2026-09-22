@@ -4,7 +4,7 @@ Read this before changing anything. Short rules live in [`AGENTS.md`](./AGENTS.m
 
 **Workspace:** `C:\Clockify`  
 **Git repo:** `C:\Clockify\CLOCKINATOR-main` (branch `main`)  
-**Updated:** 21 Aug 2026 — Invoices screen + shared Clockify-style multi-page PDF export (`buildSummaryPdf` / `buildTimeSummaryPdf`). Reports and Invoice PDFs use the same layout (title, range, total, Project / Description / nested sections, workspace footer). Remaining Stream J: custom fields, CSV import, rounding, favorite entries, bulk edit.
+**Updated:** 22 Sep 2026 — Report rounding is live and persisted locally: none / nearest / up / down at 5, 6, 10, 15, 30, or 60 minute increments. It is applied per completed entry consistently across report totals, charts, billing/labor math, Detailed view, CSV, and PDF; stored time is unchanged. Also repaired the Python service constructor so an explicit shared store is retained (and removed merge-duplicate setup that replaced the manager role). Remaining Stream J: custom fields, CSV import, favorite entries, bulk edit.
 
 This is a **Clockify-inspired self-hosted / local-first time-ops product**, not a Clockify clone. Do not copy vendor UI, chrome, copy, or implementation. Match *capabilities* using Clockinator’s own design.
 
@@ -98,8 +98,8 @@ CLOCKINATOR-main/
 | Time Tracker composer + live bar | Yes — tags, tasks, manual add, 14-day history, row edit, breaks |
 | Projects list / favorite / create | Yes — form (client, color, rate, estimate, access, tasks) + filters + CSV |
 | Clients / Tags | Yes — list + create |
-| Reports range + group-by | Yes — Summary + Detailed, labor/profit, project/description grouping, bars + donut |
-| CSV / PDF export | Yes — shared multi-page summary PDF (Reports + Invoices) |
+| Reports range + group-by | Yes — Summary + Detailed, labor/profit, project/description grouping, bars + donut, per-entry rounding |
+| CSV / PDF export | Yes — shared multi-page summary PDF (Reports + Invoices); report CSV preserves raw + rounded duration |
 | Timesheet week grid | Yes — click empty cell to add; submit week; lock/unlock week |
 | Calendar week grid | Yes — positioned blocks 07:00–20:00, add/edit |
 | Approvals | Yes — submit / approve / reject on `approval_status` |
@@ -111,7 +111,7 @@ CLOCKINATOR-main/
 
 ### Python domain — still tested, not wired to the UI
 
-`TimeOpsService`: start/stop (no pause/split/break), manual entries, weekly summary, monthly income, CSV, project summaries, audit for timer + project status. **10 tests passing.** In-memory only.
+`TimeOpsService`: start/stop (no pause/split/break), manual entries, weekly summary, monthly income, CSV, project summaries, audit for timer + project status. **16 tests passing.** In-memory only.
 
 ### Clockify screen reference → Clockinator
 
@@ -122,7 +122,7 @@ CLOCKINATOR-main/
 | Pause / split / breaks | Wired; completed breaks listed on tracker | — |
 | Projects table + filters | Live form + task rates + filter bar + export | Member access rules |
 | Clients / Tags | Live list + create | Archive / merge |
-| Reports summary | Totals + labor/profit + From/To range + decimal toggle + charts + Detailed | Rounding |
+| Reports summary | Totals + labor/profit + From/To range + decimal toggle + charts + Detailed + per-entry rounding | — |
 | Timesheet week grid | Live + submit week + lock/unlock week | — |
 | Approvals queue | Live | Comments |
 | Calendar | Week grid + jump-to-date + month/week nav + today highlight | Day view, drag/drop |
@@ -133,7 +133,7 @@ CLOCKINATOR-main/
 
 Legend: **Done** = usable in UI · **Engine** = rules/snapshots work, thin or no admin UI · **Schema** = tables/columns exist, no UI/enforcement · **Partial** = some UI but not the Clockify-shaped feature · **No** = absent · **Skip** = cloud/hardware/enterprise — not a local-first goal
 
-Rough count excluding Skip: ~12 Done, ~10 Engine/Schema/Partial, ~8 No. Skip ~19.
+Rough count excluding Skip: ~13 Done, ~10 Engine/Schema/Partial, ~7 No. Skip ~19.
 
 #### FREE (17)
 
@@ -169,7 +169,7 @@ Rough count excluding Skip: ~12 Done, ~10 Engine/Schema/Partial, ~8 No. Skip ~19
 | Targets & reminders | No | |
 | Manager role | Schema | `users.role`; seed is owner only; no role UI |
 | Task rates | Done | Project form: edit/add tasks with billable rates + `rate_history` |
-| Rounding | No | |
+| Rounding | Done | Report control supports nearest/up/down per entry at 5/6/10/15/30/60m; totals, money, charts, CSV, and PDF agree. Raw entries are not mutated. |
 | QuickBooks | Skip | Cloud integration |
 | Recurring invoices | No | |
 | Attendance report | No | |
@@ -254,7 +254,7 @@ Python **3.12+**. Web: React 18, Vite 5, TypeScript, sql.js, **no router, no UI 
 - `useTimer` + Time Tracker start/pause/resume/stop/split/break
 - Dense demo history + rolling 14-day tracker list, tag picker, manual add, row edit
 - Break rows on Time Tracker (work totals exclude breaks)
-- Reports Summary + Detailed + group-by + stacked day chart + donut + CSV/PDF + labor/profit
+- Reports Summary + Detailed + group-by + stacked day chart + donut + CSV/PDF + labor/profit + per-entry rounding
 - Decimal duration toggle (`h:mm:ss` / `0.00h`) on Tracker / Timesheet / Reports
 - Projects form (client/color/rate/estimate/access) + **task rate editor** + filters + CSV
 - Clients + Tags screens
@@ -265,15 +265,14 @@ Python **3.12+**. Web: React 18, Vite 5, TypeScript, sql.js, **no router, no UI 
 
 ### Stream J — Local grid gaps (claim one slice)
 
-Shipped: break rows, lock week, task rates, decimal format, labor/profit, **invoice UI + shared PDF**.
+Shipped: break rows, lock week, task rates, decimal format, labor/profit, **invoice UI + shared PDF**, report/export rounding.
 
 Still open:
 
 1. Custom/required fields on composer
 2. CSV timesheet import
-3. Rounding (report/export duration rounding rules)
-4. Favorite time-entry presets (not project stars)
-5. Bulk edit
+3. Favorite time-entry presets (not project stars)
+4. Bulk edit
 
 ### Stream I — Native desktop adapter
 
@@ -323,6 +322,7 @@ Elapsed work = sum of completed work durations + live work period. Break clock i
 - **sql.js browser ESM has no default export.** Load `sql.js/dist/sql-asm.js` after React paints (`src/db/client.ts` + dynamic import in `useClockinator.tsx`). Do not `import initSqlJs from "sql.js"` in the renderer — that whitescreens `#root`.
 - `sql.js` WASM is ~650KB. Keep it the only native-ish dep until a desktop adapter exists.
 - PDF exports use a multi-page Helvetica summary layout (`domain/pdf.ts`) with accent bar, Overview donut + daily stacked bars, bold headings, column headers, zebra rows, and right-aligned Duration/Share/Amount — Clockify-shaped, Clockinator-branded.
+- Report rounding is presentation/export-only and runs per completed entry in `ClockinatorStore.report`; never write rounded values back to `time_entries`.
 - Python domain has **no** pause/split/break. TS is ahead. Do not “fix” the UI by calling Python.
 - `RunningBar` demo (`useState(2537)`) was removed; do not bring it back.
 - Project tracked hours are **real sums**, not the old mockup’s 68.2h fixtures.
@@ -342,7 +342,7 @@ Elapsed work = sum of completed work durations + live work period. Break clock i
 | Timer rules | `apps/web/src/domain/timer.ts` |
 | Rate hierarchy | `apps/web/src/domain/rates.ts` |
 | CSV/PDF | `apps/web/src/domain/reports.ts`, `domain/pdf.ts` |
-| Duration display prefs | `apps/web/src/domain/preferences.ts`, `hooks/useDurationFormat.ts` |
+| Duration display + rounding prefs | `apps/web/src/domain/preferences.ts`, `domain/rounding.ts`, `hooks/useDurationFormat.ts`, `hooks/useReportRounding.ts` |
 | Hook | `apps/web/src/hooks/useTimer.ts` |
 | Time Tracker | `apps/web/src/screens/TimeTracker.tsx` |
 | Timesheet | `apps/web/src/screens/Timesheet.tsx` |

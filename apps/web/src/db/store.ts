@@ -39,6 +39,7 @@ import {
   startOfLocalWeek,
 } from "../domain/duration";
 import { billableAmount, formatAmount, formatRate, parseAmount } from "../domain/money";
+import { DEFAULT_ROUNDING, roundDurationSeconds, type RoundingSettings } from "../domain/rounding";
 import { savePersistedDb } from "./persist";
 import { seedIfEmpty } from "./seed";
 import type { SqlDatabase, SqlParam } from "./sql";
@@ -789,7 +790,7 @@ export class ClockinatorStore implements TimerEngineDb {
     }));
   }
 
-  report(fromIso: string, toIso: string) {
+  report(fromIso: string, toIso: string, rounding: RoundingSettings = DEFAULT_ROUNDING) {
     const rows = this.all<{
       project_name: string | null;
       project_color: string | null;
@@ -810,24 +811,26 @@ export class ClockinatorStore implements TimerEngineDb {
        ORDER BY e.start_at`,
       [this.workspaceId, fromIso, toIso],
     );
+    const durationFor = (row: { duration_seconds: number }) => roundDurationSeconds(Number(row.duration_seconds), rounding);
     const work = rows.filter((r) => r.kind === "work");
-    const totalSeconds = work.reduce((s, r) => s + Number(r.duration_seconds), 0);
-    const billableSeconds = work.filter((r) => r.is_billable === 1).reduce((s, r) => s + Number(r.duration_seconds), 0);
+    const totalSeconds = work.reduce((s, r) => s + durationFor(r), 0);
+    const billableSeconds = work.filter((r) => r.is_billable === 1).reduce((s, r) => s + durationFor(r), 0);
     const amount = work
       .filter((r) => r.is_billable === 1)
-      .reduce((s, r) => s + (Number(r.duration_seconds) / 3600) * Number(r.billable_rate_snapshot || 0), 0);
+      .reduce((s, r) => s + (durationFor(r) / 3600) * Number(r.billable_rate_snapshot || 0), 0);
     const laborCost = work.reduce(
-      (s, r) => s + (Number(r.duration_seconds) / 3600) * Number(r.cost_rate_snapshot || 0),
+      (s, r) => s + (durationFor(r) / 3600) * Number(r.cost_rate_snapshot || 0),
       0,
     );
     const profit = amount - laborCost;
     const byProject = new Map<string, { title: string; color: string; seconds: number }>();
     const byDay = new Map<string, ReportDay>();
     for (const row of work) {
+      const roundedSeconds = durationFor(row);
       const title = row.project_name ?? "No project";
       const color = row.project_color ?? "#7d776e";
       const current = byProject.get(title) ?? { title, color, seconds: 0 };
-      current.seconds += Number(row.duration_seconds);
+      current.seconds += roundedSeconds;
       byProject.set(title, current);
 
       const key = localDayKey(row.start_at);
@@ -842,11 +845,43 @@ export class ClockinatorStore implements TimerEngineDb {
         });
       }
       const day = byDay.get(key)!;
-      day.seconds += Number(row.duration_seconds);
+      day.seconds += roundedSeconds;
       const stack = day.stacks.find((s) => s.title === title);
-      if (stack) stack.seconds += Number(row.duration_seconds);
-      else day.stacks.push({ title, color, seconds: Number(row.duration_seconds) });
+      if (stack) stack.seconds += roundedSeconds;
+      else day.stacks.push({ title, color, seconds: roundedSeconds });
     }
+    const csvRows = this.all<{
+      entry_id: string;
+      user_email: string;
+      project: string | null;
+      task: string | null;
+      tags: string | null;
+      description: string;
+      start_at: string;
+      end_at: string | null;
+      duration_seconds: number;
+      billable: number;
+      billable_rate: string;
+      cost_rate: string;
+      kind: string;
+    }>(
+      `SELECT e.id AS entry_id, u.email AS user_email, p.name AS project, t.name AS task,
+              (SELECT GROUP_CONCAT(tg.name, ', ') FROM time_entry_tags et JOIN tags tg ON tg.id = et.tag_id WHERE et.time_entry_id = e.id) AS tags,
+              e.description, e.start_at, e.end_at, e.duration_seconds,
+              e.is_billable AS billable, e.billable_rate_snapshot AS billable_rate, e.cost_rate_snapshot AS cost_rate, e.kind
+       FROM time_entries e
+       JOIN users u ON u.id = e.user_id
+       LEFT JOIN projects p ON p.id = e.project_id
+       LEFT JOIN tasks t ON t.id = e.task_id
+       WHERE e.workspace_id = ? AND e.deleted_at IS NULL AND e.end_at IS NOT NULL
+         AND e.start_at >= ? AND e.start_at < ?
+       ORDER BY e.start_at`,
+      [this.workspaceId, fromIso, toIso],
+    ).map(({ duration_seconds, ...row }) => ({
+      ...row,
+      raw_duration_hours: Number(duration_seconds) / 3600,
+      duration_hours: roundDurationSeconds(Number(duration_seconds), rounding) / 3600,
+    }));
     return {
       totalSeconds,
       billableSeconds,
@@ -855,34 +890,7 @@ export class ClockinatorStore implements TimerEngineDb {
       profit,
       daily: [...byDay.values()],
       groups: [...byProject.values()].sort((a, b) => b.seconds - a.seconds),
-      csvRows: this.all<{
-        entry_id: string;
-        user_email: string;
-        project: string | null;
-        task: string | null;
-        tags: string | null;
-        description: string;
-        start_at: string;
-        end_at: string | null;
-        duration_hours: number;
-        billable: number;
-        billable_rate: string;
-        cost_rate: string;
-        kind: string;
-      }>(
-        `SELECT e.id AS entry_id, u.email AS user_email, p.name AS project, t.name AS task,
-                (SELECT GROUP_CONCAT(tg.name, ', ') FROM time_entry_tags et JOIN tags tg ON tg.id = et.tag_id WHERE et.time_entry_id = e.id) AS tags,
-                e.description, e.start_at, e.end_at, e.duration_seconds / 3600.0 AS duration_hours,
-                e.is_billable AS billable, e.billable_rate_snapshot AS billable_rate, e.cost_rate_snapshot AS cost_rate, e.kind
-         FROM time_entries e
-         JOIN users u ON u.id = e.user_id
-         LEFT JOIN projects p ON p.id = e.project_id
-         LEFT JOIN tasks t ON t.id = e.task_id
-         WHERE e.workspace_id = ? AND e.deleted_at IS NULL AND e.end_at IS NOT NULL
-           AND e.start_at >= ? AND e.start_at < ?
-         ORDER BY e.start_at`,
-        [this.workspaceId, fromIso, toIso],
-      ),
+      csvRows,
     };
   }
 
