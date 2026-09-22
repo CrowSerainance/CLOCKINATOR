@@ -7,8 +7,6 @@ from datetime import UTC, date, datetime, time, timedelta
 from decimal import Decimal
 
 from .in_memory import InMemoryTimeOpsStore
-from datetime import UTC, date, datetime, time, timedelta
-from decimal import Decimal
 
 from .models import (
     ApprovalStatus,
@@ -24,7 +22,6 @@ from .models import (
     ProjectStatus,
     ReportChartBucket,
     ReportDetailedRow,
-    ProjectStatus,
     ReportGroupBy,
     ReportQuery,
     ReportSummaryRow,
@@ -52,7 +49,7 @@ class TimeOpsService:
 
     def __init__(self, *, single_workspace: bool = True, store: TimeOpsStore | None = None) -> None:
         self.single_workspace = single_workspace
-        self.store = store or InMemoryTimeOpsStore()
+        self.store = store if store is not None else InMemoryTimeOpsStore()
         self.workspaces = self.store.workspaces
         self.users = self.store.users
         self.clients = self.store.clients
@@ -63,16 +60,6 @@ class TimeOpsService:
         self.timesheet_periods = self.store.timesheet_periods
         self.audit_logs = self.store.audit_logs
         self.favorite_projects_by_user = self.store.favorite_projects_by_user
-        self.workspaces: dict[str, Workspace] = {}
-        self.users: dict[str, User] = {}
-        self.clients: dict[str, Client] = {}
-        self.projects: dict[str, Project] = {}
-        self.tasks: dict[str, Task] = {}
-        self.tags: dict[str, Tag] = {}
-        self.time_entries: dict[str, TimeEntry] = {}
-        self.timesheet_periods: dict[str, TimesheetPeriod] = {}
-        self.audit_logs: list[AuditLog] = []
-
 
     def create_workspace(self, name: str, *, default_billable_rate: Decimal = Decimal("0"), currency: str = "USD") -> Workspace:
         if self.single_workspace and self.workspaces:

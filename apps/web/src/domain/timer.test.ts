@@ -164,6 +164,19 @@ describe("timer engine", () => {
     expect(cal.weekTotal).toBeGreaterThan(0);
   });
 
+  it("applies report rounding per entry without losing raw export duration", async () => {
+    const store = await makeStore();
+    const from = new Date("2026-07-20T00:00:00").toISOString();
+    const to = new Date("2026-08-17T00:00:00").toISOString();
+    const raw = store.report(from, to);
+    const rounded = store.report(from, to, { mode: "up", incrementMinutes: 60 });
+
+    expect(rounded.totalSeconds).toBeGreaterThanOrEqual(raw.totalSeconds);
+    expect(rounded.csvRows.length).toBe(raw.csvRows.length);
+    expect(rounded.csvRows.every((row) => Number.isInteger(row.duration_hours))).toBe(true);
+    expect(rounded.csvRows.map((row) => row.raw_duration_hours)).toEqual(raw.csvRows.map((row) => row.raw_duration_hours));
+  });
+
   it("creates an invoice from billable entries and blocks double-billing", async () => {
     const store = await makeStore();
     const from = new Date("2026-07-20T00:00:00");
