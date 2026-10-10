@@ -1,11 +1,15 @@
+import { useState } from "react";
 import { theme } from "../theme";
 import { useStore, useStoreRevision } from "../hooks/useClockinator";
-import { btn, card, pagePad } from "../components/ui";
+import { btn, card, fieldStyle, pagePad } from "../components/ui";
 
 export function Approvals() {
   const store = useStore();
   useStoreRevision();
   const rows = store.listApprovals();
+  const managing = store.canManage();
+  const [noteFor, setNoteFor] = useState<string | null>(null);
+  const [note, setNote] = useState("");
   const pending = rows.filter((r) => r.status === "submitted").length;
   const drafts = rows.filter((r) => r.status === "draft").length;
 
@@ -50,7 +54,7 @@ export function Approvals() {
               alignItems: "center",
             }}
           >
-            <span style={{ fontSize: 13, fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{row.desc}</span>
+            <span style={{ fontSize: 13, fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{row.user} · {row.desc}</span>
             <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}>
               <span style={{ width: 8, height: 8, borderRadius: "50%", background: row.color, flexShrink: 0 }} />
               <span style={{ fontSize: 13, color: theme.textMuted, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{row.project}</span>
@@ -64,7 +68,12 @@ export function Approvals() {
                   Submit
                 </button>
               )}
-              {row.status === "submitted" && (
+              {row.status === "submitted" && (managing || row.userId === store.userId) && (
+                <button onClick={() => store.setApprovalStatus(row.id, "draft")} style={btn(theme.surfaceAlt, theme.text, { padding: "6px 10px", fontSize: 12 })}>
+                  Withdraw
+                </button>
+              )}
+              {row.status === "submitted" && managing && (
                 <>
                   <button onClick={() => store.setApprovalStatus(row.id, "approved")} style={btn(theme.accent, theme.accentInk, { padding: "6px 10px", fontSize: 12 })}>
                     Approve
@@ -74,11 +83,37 @@ export function Approvals() {
                   </button>
                 </>
               )}
+              <button onClick={() => setNoteFor(noteFor === row.id ? null : row.id)} style={btn(theme.surfaceAlt, theme.textMuted, { padding: "6px 8px", fontSize: 12 })}>
+                {row.noteCount ? `${row.noteCount}` : "Note"}
+              </button>
             </div>
           </div>
         ))}
         {rows.length === 0 && <div style={{ padding: 28, color: theme.textMuted, fontSize: 13 }}>No time entries to review.</div>}
       </div>
+      {noteFor && (
+        <div style={{ ...card, padding: 16, marginTop: 12 }}>
+          {store.listApprovalNotes(noteFor).map((item) => (
+            <div key={`${item.createdAt}-${item.body}`} style={{ fontSize: 13, marginBottom: 6 }}>
+              <span style={{ fontWeight: 700 }}>{item.author}</span>
+              <span style={{ color: theme.textFaint }}> · {item.createdAt}</span>
+              <div>{item.body}</div>
+            </div>
+          ))}
+          <div style={{ display: "flex", gap: 8 }}>
+            <input value={note} onChange={(e) => setNote(e.target.value)} placeholder="Comment" style={{ ...fieldStyle, flex: 1 }} />
+            <button
+              onClick={() => {
+                store.addApprovalNote(noteFor, note);
+                setNote("");
+              }}
+              style={btn(theme.accent, theme.accentInk)}
+            >
+              Add note
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

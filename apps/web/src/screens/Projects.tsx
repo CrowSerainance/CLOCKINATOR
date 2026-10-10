@@ -245,6 +245,12 @@ function ProjectForm({
   const [isBillable, setIsBillable] = useState(project?.isBillable ?? true);
   const [billableRate, setBillableRate] = useState(project?.billableRate ?? "");
   const [estimatedHours, setEstimatedHours] = useState(project?.estimatedHours ?? "");
+  const [budgetAmount, setBudgetAmount] = useState(project?.budgetAmount ?? "");
+  const [templateId, setTemplateId] = useState("");
+  const [templateName, setTemplateName] = useState("");
+  const [rateFrom, setRateFrom] = useState("");
+  const templates = store.listTemplates();
+  const history = project?.id ? store.listRateHistory("project", project.id) : [];
   const [access, setAccess] = useState<"public" | "private">(project?.access ?? "public");
   const [status, setStatus] = useState<"active" | "on_hold" | "archived">((project?.rawStatus as "active" | "on_hold" | "archived") ?? "active");
   const [newTaskName, setNewTaskName] = useState("");
@@ -282,6 +288,21 @@ function ProjectForm({
           <input value={estimatedHours} onChange={(e) => setEstimatedHours(e.target.value)} placeholder="40" style={{ ...fieldStyle, width: "100%" }} />
         </label>
       </div>
+      <label>
+        <span style={labelStyle}>BUDGET ({store.workspacePolicy().currency})</span>
+        <input value={budgetAmount} onChange={(e) => setBudgetAmount(e.target.value)} placeholder="6000.00" style={{ ...fieldStyle, width: "100%" }} />
+      </label>
+      {!project && templates.length > 0 && (
+        <label>
+          <span style={labelStyle}>FROM TEMPLATE</span>
+          <select value={templateId} onChange={(e) => setTemplateId(e.target.value)} style={{ ...fieldStyle, width: "100%" }}>
+            <option value="">Blank project</option>
+            {templates.map((template) => (
+              <option key={template.id} value={template.id}>{template.name} · {template.tasks} tasks</option>
+            ))}
+          </select>
+        </label>
+      )}
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10 }}>
         <label>
           <span style={labelStyle}>ACCESS</span>
@@ -306,6 +327,38 @@ function ProjectForm({
 
       {project?.id && (
         <div style={{ borderTop: `1px solid ${theme.border}`, paddingTop: 12 }}>
+          <div style={{ ...labelStyle, marginBottom: 8 }}>HISTORIC RATES</div>
+          {history.slice(0, 4).map((row) => (
+            <div key={`${row.kind}-${row.from}`} style={{ fontSize: 12, color: theme.textMuted, marginBottom: 4 }}>
+              {row.kind} {row.amount} from {row.from}{row.to ? ` to ${row.to}` : " (current)"}
+            </div>
+          ))}
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr auto", gap: 8, marginBottom: 12 }}>
+            <input value={billableRate} onChange={(e) => setBillableRate(e.target.value)} placeholder="New rate" style={fieldStyle} />
+            <input type="date" value={rateFrom} onChange={(e) => setRateFrom(e.target.value)} style={fieldStyle} />
+            <button
+              onClick={() => {
+                if (!project.id || !billableRate.trim() || !rateFrom) return;
+                store.setSubjectRate("project", project.id, "billable", billableRate.trim(), new Date(`${rateFrom}T00:00:00`).toISOString());
+              }}
+              style={btn(theme.surfaceAlt, theme.text)}
+            >
+              Set rate
+            </button>
+          </div>
+          <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
+            <input value={templateName} onChange={(e) => setTemplateName(e.target.value)} placeholder="Template name" style={{ ...fieldStyle, flex: 1 }} />
+            <button
+              onClick={() => {
+                if (!project.id || !templateName.trim()) return;
+                store.saveProjectTemplate(project.id, templateName.trim());
+                setTemplateName("");
+              }}
+              style={btn(theme.surfaceAlt, theme.text)}
+            >
+              Save template
+            </button>
+          </div>
           <div style={{ ...labelStyle, marginBottom: 8 }}>TASKS & RATES</div>
           {tasks.map((task) => (
             <TaskRateRow
@@ -350,7 +403,12 @@ function ProjectForm({
         <button
           onClick={() => {
             if (!name.trim()) return;
-            onSave({ name, clientId, color, isBillable, billableRate, estimatedHours, access, status });
+            if (!project && templateId) {
+              store.createProjectFromTemplate(templateId, name, clientId);
+              onCancel();
+              return;
+            }
+            onSave({ name, clientId, color, isBillable, billableRate, estimatedHours, budgetAmount, access, status });
           }}
           style={btn(theme.accent, theme.accentInk)}
         >

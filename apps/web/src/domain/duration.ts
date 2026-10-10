@@ -48,6 +48,12 @@ export function addDays(d: Date, days: number): Date {
   return next;
 }
 
+export function addMonths(d: Date, months: number): Date {
+  const next = new Date(d);
+  next.setMonth(next.getMonth() + months);
+  return next;
+}
+
 export function dayLabel(dayKey: string, todayKey: string, yesterdayKey: string): string {
   if (dayKey === todayKey) return "Today";
   if (dayKey === yesterdayKey) return "Yesterday";

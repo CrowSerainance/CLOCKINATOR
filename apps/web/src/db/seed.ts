@@ -33,6 +33,7 @@ export function seedIfEmpty(db: SqlDatabase, at: Date = new Date()): { workspace
   );
   if (existing) {
     ensureDenseDemo(db, at);
+    ensureWorkspaceExtras(db, existing.id, at);
     return { workspaceId: existing.id, userId: existing.user_id };
   }
 
@@ -95,7 +96,55 @@ export function seedIfEmpty(db: SqlDatabase, at: Date = new Date()): { workspace
     ["aud_seed", ws, user, ws, created],
   );
 
+  ensureWorkspaceExtras(db, ws, at);
   return { workspaceId: ws, userId: user };
+}
+
+function ensureWorkspaceExtras(db: SqlDatabase, workspaceId: string, at: Date): void {
+  if (workspaceId !== IDS.workspace) return;
+  const created = nowIso(at);
+  const people: Array<[string, string, string, string, string]> = [
+    [IDS.users.jonah, "Jonah Hale", "jonah@northwind.test", "18.00", "manager"],
+    [IDS.users.priya, "Priya Shah", "priya@northwind.test", "22.00", "member"],
+  ];
+  for (const [id, name, email, cost, role] of people) {
+    run(
+      db,
+      `INSERT OR IGNORE INTO users (id, workspace_id, name, email, default_cost_rate, role, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      [id, workspaceId, name, email, cost, role, created],
+    );
+  }
+  const fx = db.get<{ id: string }>(`SELECT id FROM currency_rates WHERE id = 'fx_eur'`);
+  if (!fx) {
+    run(db, `INSERT INTO currency_rates (id, workspace_id, currency, rate_to_base) VALUES ('fx_eur', ?, 'EUR', '1.08')`, [
+      workspaceId,
+    ]);
+    run(db, `UPDATE clients SET currency = 'EUR' WHERE id = ? AND currency = 'USD'`, [IDS.clients.acme]);
+  }
+  const template = db.get<{ id: string }>(`SELECT id FROM project_templates WHERE id = 'tpl_delivery'`);
+  if (!template) {
+    run(
+      db,
+      `INSERT INTO project_templates (id, workspace_id, name, color, is_billable, billable_rate, estimated_hours, budget_amount, created_at)
+       VALUES ('tpl_delivery', ?, 'Client delivery', '#5bbd7e', 1, '150.00', '40', '6000.00', ?)`,
+      [workspaceId, created],
+    );
+    run(db, `INSERT INTO project_template_tasks (id, template_id, name, billable_rate) VALUES ('tpl_task_discovery', 'tpl_delivery', 'Discovery', '150.00')`);
+    run(db, `INSERT INTO project_template_tasks (id, template_id, name, billable_rate) VALUES ('tpl_task_build', 'tpl_delivery', 'Build', '160.00')`);
+  }
+  run(
+    db,
+    `INSERT OR IGNORE INTO custom_field_definitions (id, workspace_id, target, name, field_type, required, options_json, sort_order, created_at)
+     VALUES ('cf_ticket', ?, 'time_entry', 'Ticket', 'text', 0, NULL, 0, ?)`,
+    [workspaceId, created],
+  );
+  run(
+    db,
+    `INSERT OR IGNORE INTO custom_field_definitions (id, workspace_id, target, name, field_type, required, options_json, sort_order, created_at)
+     VALUES ('cf_employee_id', ?, 'user', 'Employee ID', 'text', 0, NULL, 0, ?)`,
+    [workspaceId, created],
+  );
 }
 
 function seedTasks(db: SqlDatabase, created: string): void {

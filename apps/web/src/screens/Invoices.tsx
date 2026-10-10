@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import { theme } from "../theme";
 import { useStore, useStoreRevision } from "../hooks/useClockinator";
-import { addDays, formatDuration, startOfLocalDay, startOfLocalWeek } from "../domain/duration";
+import { addDays, formatDuration, startOfLocalDay, startOfLocalWeek, toDateInput } from "../domain/duration";
 import { buildTimeSummaryPdf, downloadBlob } from "../domain/reports";
 import { formatAmount as moneyFmt } from "../domain/money";
 import { btn, card, fieldStyle, pagePad } from "../components/ui";
@@ -31,6 +31,7 @@ export function Invoices() {
           + New invoice
         </button>
       </div>
+      <RecurringInvoices />
 
       <div style={card}>
         <div
@@ -350,6 +351,59 @@ function exportInvoicePdf(
   });
 
   downloadBlob(`clockinator-${invoice.number.toLowerCase()}.pdf`, blob);
+}
+
+function RecurringInvoices() {
+  const store = useStore();
+  useStoreRevision();
+  const rows = store.listRecurring();
+  const clients = store.listClients();
+  const [clientId, setClientId] = useState(clients[0]?.id ?? "");
+  const [interval, setIntervalUnit] = useState<"weekly" | "monthly">("monthly");
+  const [nextDate, setNextDate] = useState(() => toDateInput(new Date()));
+  const [note, setNote] = useState("");
+  if (!store.canManage()) return null;
+  return (
+    <div style={{ ...card, padding: 16, marginBottom: 14 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10, flexWrap: "wrap" }}>
+        <div style={{ fontSize: 14, fontWeight: 700, marginRight: 8 }}>Recurring</div>
+        <select value={clientId} onChange={(e) => setClientId(e.target.value)} style={fieldStyle}>
+          {clients.map((client) => (
+            <option key={client.id} value={client.id}>{client.name}</option>
+          ))}
+        </select>
+        <select value={interval} onChange={(e) => setIntervalUnit(e.target.value as "weekly" | "monthly")} style={fieldStyle}>
+          <option value="monthly">Monthly</option>
+          <option value="weekly">Weekly</option>
+        </select>
+        <input type="date" value={nextDate} onChange={(e) => setNextDate(e.target.value)} style={fieldStyle} />
+        <input value={note} onChange={(e) => setNote(e.target.value)} placeholder="Note" style={fieldStyle} />
+        <button
+          onClick={() => {
+            if (!clientId) return;
+            store.createRecurring({ clientId, interval, nextIssueDate: nextDate, notes: note });
+          }}
+          style={btn(theme.surfaceAlt, theme.text)}
+        >
+          Schedule
+        </button>
+        <button
+          onClick={() => {
+            const result = store.generateDueRecurring();
+            window.alert(result.created ? `Created ${result.created} invoice(s).` : result.skipped[0] || "Nothing due.");
+          }}
+          style={btn(theme.accent, theme.accentInk)}
+        >
+          Generate due
+        </button>
+      </div>
+      {rows.map((row) => (
+        <div key={row.id} style={{ fontSize: 13, color: theme.textMuted, padding: "4px 0" }}>
+          {row.client} · {row.interval} · next {row.nextIssueDate}
+        </div>
+      ))}
+    </div>
+  );
 }
 
 function rangeFor(preset: RangePreset): { from: Date; to: Date } {

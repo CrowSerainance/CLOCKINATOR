@@ -44,7 +44,8 @@ export function Reports() {
   const [preset, setPreset] = useState<RangePreset>("last30");
   const [fromInput, setFromInput] = useState(() => toDateInput(initial.from));
   const [toInput, setToInput] = useState(() => toDateInput(addDays(initial.toExclusive, -1)));
-  const [tab, setTab] = useState<"summary" | "detailed">("summary");
+  const [tab, setTab] = useState<"summary" | "detailed" | "attendance">("summary");
+  const [showEstimates, setShowEstimates] = useState(true);
   const [groupBy, setGroupBy] = useState<"project" | "description">("project");
   const [client, setClient] = useState("");
   const [project, setProject] = useState("");
@@ -113,24 +114,28 @@ export function Reports() {
   const filteredSeconds = grouped.reduce((s, g) => s + g.seconds, 0);
   const maxDay = Math.max(1, ...report.daily.map((d) => d.seconds));
 
+  const exportColumns = [
+    ["entry_id", (row: (typeof report.csvRows)[number]) => row.entry_id],
+    ["user", (row: (typeof report.csvRows)[number]) => row.user_email],
+    ["project", (row: (typeof report.csvRows)[number]) => row.project ?? ""],
+    ["task", (row: (typeof report.csvRows)[number]) => row.task ?? ""],
+    ["tags", (row: (typeof report.csvRows)[number]) => row.tags ?? ""],
+    ["description", (row: (typeof report.csvRows)[number]) => row.description],
+    ["kind", (row: (typeof report.csvRows)[number]) => row.kind],
+    ["start_at", (row: (typeof report.csvRows)[number]) => row.start_at],
+    ["end_at", (row: (typeof report.csvRows)[number]) => row.end_at ?? ""],
+    ["duration_hours", (row: (typeof report.csvRows)[number]) => Number(row.duration_hours).toFixed(2)],
+    ["billable", (row: (typeof report.csvRows)[number]) => (row.billable ? "true" : "false")],
+    ["billable_rate", (row: (typeof report.csvRows)[number]) => row.billable_rate],
+    ["cost_rate", (row: (typeof report.csvRows)[number]) => row.cost_rate],
+  ] as const;
+  const [csvColumns, setCsvColumns] = useState<string[]>(exportColumns.map((column) => column[0]));
+
   const exportCsv = () => {
+    const chosen = exportColumns.filter((column) => csvColumns.includes(column[0]));
     const csv = toCsv(
-      ["entry_id", "user", "project", "task", "tags", "description", "kind", "start_at", "end_at", "duration_hours", "billable", "billable_rate", "cost_rate"],
-      report.csvRows.map((row) => [
-        row.entry_id,
-        row.user_email,
-        row.project,
-        row.task,
-        row.tags,
-        row.description,
-        row.kind,
-        row.start_at,
-        row.end_at,
-        Number(row.duration_hours).toFixed(2),
-        row.billable ? "true" : "false",
-        row.billable_rate,
-        row.cost_rate,
-      ]),
+      chosen.map((column) => column[0]),
+      report.csvRows.map((row) => chosen.map((column) => column[1](row))),
     );
     downloadTextFile(`clockinator-report.csv`, csv, "text/csv;charset=utf-8");
   };
@@ -238,6 +243,9 @@ export function Reports() {
         <button onClick={() => setTab("detailed")} style={btn(tab === "detailed" ? theme.accent + "22" : "transparent", theme.text, { border: `1px solid ${tab === "detailed" ? theme.accent + "55" : theme.border}` })}>
           Detailed
         </button>
+        <button onClick={() => setTab("attendance")} style={btn(tab === "attendance" ? theme.accent + "22" : "transparent", theme.text, { border: `1px solid ${tab === "attendance" ? theme.accent + "55" : theme.border}` })}>
+          Attendance
+        </button>
         <div style={{ flex: 1 }} />
         <button
           onClick={() => setDurationFormat(durationFormat === "clock" ? "decimal" : "clock")}
@@ -245,6 +253,28 @@ export function Reports() {
         >
           {durationFormat === "clock" ? "h:mm:ss" : "0.00h"}
         </button>
+        <button onClick={() => setShowEstimates((value) => !value)} style={btn(theme.surfaceAlt, theme.textMuted, { fontSize: 12 })}>
+          {showEstimates ? "Estimates on" : "Estimates off"}
+        </button>
+        <details>
+          <summary style={{ ...btn(theme.surfaceAlt, theme.text), listStyle: "none" }}>Columns</summary>
+          <div style={{ position: "absolute", zIndex: 5, marginTop: 6, background: theme.surface, border: `1px solid ${theme.border}`, borderRadius: 10, padding: 10 }}>
+            {exportColumns.map((column) => (
+              <label key={column[0]} style={{ display: "flex", gap: 6, fontSize: 12, marginBottom: 4 }}>
+                <input
+                  type="checkbox"
+                  checked={csvColumns.includes(column[0])}
+                  onChange={() =>
+                    setCsvColumns((current) =>
+                      current.includes(column[0]) ? current.filter((name) => name !== column[0]) : [...current, column[0]],
+                    )
+                  }
+                />
+                {column[0]}
+              </label>
+            ))}
+          </div>
+        </details>
         <button onClick={exportCsv} style={btn(theme.surfaceAlt, theme.text)}>
           Export CSV
         </button>
@@ -356,7 +386,11 @@ export function Reports() {
 
       <div style={{ fontSize: 28, fontWeight: 700, marginBottom: 4 }}>{fmt(report.totalSeconds)}</div>
       <div style={{ fontSize: 13, color: theme.textMuted, marginBottom: 16 }}>
-        Billable {fmt(report.billableSeconds)} · ${report.amount.toFixed(2)} · Labor ${report.laborCost.toFixed(2)} · Profit ${report.profit.toFixed(2)}
+        Billable {fmt(report.billableSeconds)}
+        {store.canSeeMoney()
+          ? ` · $${report.amount.toFixed(2)} · Labor $${report.laborCost.toFixed(2)} · Expenses $${report.expenseTotal.toFixed(2)} · Profit $${report.profit.toFixed(2)}`
+          : ""}
+        {report.roundingMinutes ? ` · Rounded ${report.roundingMinutes}m ${report.roundingMode}` : ""}
         {filteredSeconds !== report.totalSeconds ? ` · Filtered ${fmt(filteredSeconds)}` : ""}
       </div>
 
@@ -406,7 +440,15 @@ export function Reports() {
                 <span style={{ width: 8, height: 8, borderRadius: "50%", background: group.color, flexShrink: 0 }} />
                 <span style={{ fontSize: 14, fontWeight: 600 }}>{group.title}</span>
               </div>
-              <span className="mono" style={{ fontSize: 13 }}>{fmt(group.seconds)}</span>
+              <span className="mono" style={{ fontSize: 13 }}>
+                {fmt(group.seconds)}
+                {showEstimates
+                  ? (() => {
+                      const match = store.listProjects().find((project) => project.name === group.title);
+                      return match?.estimatedHours ? ` / ${match.estimatedHours}h` : "";
+                    })()
+                  : ""}
+              </span>
               <span className="mono" style={{ fontSize: 13, color: theme.textMuted }}>
                 {report.totalSeconds ? Math.round((group.seconds / report.totalSeconds) * 100) : 0}%
               </span>
@@ -457,6 +499,27 @@ export function Reports() {
         </div>
       </div>
       </>
+      ) : tab === "attendance" ? (
+        <div style={card}>
+          <div style={{ display: "grid", gridTemplateColumns: "1.2fr 110px 80px 80px 90px 90px", gap: 10, padding: "12px 18px", fontSize: 11, fontWeight: 700, color: theme.textFaint, background: theme.surfaceAlt }}>
+            <span>PERSON</span>
+            <span>DAY</span>
+            <span>FIRST</span>
+            <span>LAST</span>
+            <span>DURATION</span>
+            <span>STATUS</span>
+          </div>
+          {store.attendance(range.from.toISOString(), range.to.toISOString()).map((row) => (
+            <div key={`${row.user}-${row.day}`} style={{ display: "grid", gridTemplateColumns: "1.2fr 110px 80px 80px 90px 90px", gap: 10, padding: "10px 18px", borderTop: `1px solid ${theme.border}`, fontSize: 13 }}>
+              <span style={{ fontWeight: 600 }}>{row.user}</span>
+              <span className="mono">{row.day}</span>
+              <span className="mono">{row.first}</span>
+              <span className="mono">{row.last}</span>
+              <span className="mono">{fmt(row.seconds)}</span>
+              <span style={{ textTransform: "capitalize", color: row.status === "present" ? theme.accent : row.status === "off" ? "#e0b15c" : theme.textFaint }}>{row.status}</span>
+            </div>
+          ))}
+        </div>
       ) : (
         <div style={card}>
           <div

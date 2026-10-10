@@ -2,13 +2,18 @@ export type Screen =
   | "tracker"
   | "timesheet"
   | "calendar"
+  | "schedule"
   | "reports"
   | "projects"
   | "clients"
   | "tags"
   | "invoices"
+  | "expenses"
+  | "timeoff"
   | "approvals"
-  | "audit";
+  | "audit"
+  | "team"
+  | "workspace";
 
 export interface TimeEntry {
   id?: string;
@@ -64,6 +69,7 @@ export interface ClientRow {
   name: string;
   projects: number;
   tracked: string;
+  currency: string;
 }
 
 export interface TagRow {
@@ -80,6 +86,7 @@ export interface ProjectDraft {
   isBillable: boolean;
   billableRate: string;
   estimatedHours: string;
+  budgetAmount: string;
   access: "public" | "private";
   status: "active" | "on_hold" | "archived";
 }
@@ -124,6 +131,9 @@ export interface ApprovalRow {
   day: string;
   dur: string;
   status: string;
+  userId: string;
+  user: string;
+  noteCount: number;
 }
 
 export interface AuditRow {
@@ -133,6 +143,7 @@ export interface AuditRow {
   targetId: string;
   actor: string;
   createdAt: string;
+  detail: string;
 }
 
 export interface InvoiceListRow {
@@ -193,5 +204,7 @@ export interface ProjectRow {
   isBillable?: boolean;
   billableRate?: string | null;
   estimatedHours?: string | null;
+  budgetAmount?: string | null;
+  billedAmount?: number;
   rawStatus?: string;
 }

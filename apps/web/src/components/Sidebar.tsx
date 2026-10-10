@@ -37,21 +37,32 @@ const NAV: NavItem[] = [
   { id: "tracker", label: "Time Tracker", group: "TRACK", icon: clockIcon },
   { id: "timesheet", label: "Timesheet", group: "TRACK", icon: gridIcon },
   { id: "calendar", label: "Calendar", group: "TRACK", icon: calIcon },
+  { id: "schedule", label: "Schedule", group: "TRACK", icon: calIcon },
   { id: "reports", label: "Reports", group: "ANALYZE", icon: chartIcon },
   { id: "projects", label: "Projects", group: "MANAGE", icon: folderIcon },
   { id: "clients", label: "Clients", group: "MANAGE", icon: usersIcon },
   { id: "tags", label: "Tags", group: "MANAGE", icon: tagIcon },
   { id: "invoices", label: "Invoices", group: "MANAGE", icon: invoiceIcon },
+  { id: "expenses", label: "Expenses", group: "MANAGE", icon: invoiceIcon },
+  { id: "timeoff", label: "Time off", group: "MANAGE", icon: checkIcon },
   { id: "approvals", label: "Approvals", group: "REVIEW", icon: checkIcon },
   { id: "audit", label: "Audit Log", group: "REVIEW", icon: listIcon },
+  { id: "team", label: "Team", group: "WORKSPACE", icon: usersIcon },
+  { id: "workspace", label: "Workspace", group: "WORKSPACE", icon: listIcon },
 ];
 
 export function Sidebar({
   screen,
   onSelect,
+  hidden = [],
+  userName = "Maya Chen",
+  role = "owner",
 }: {
   screen: Screen;
   onSelect: (s: Screen) => void;
+  hidden?: string[];
+  userName?: string;
+  role?: string;
 }) {
   let lastGroup = "";
   return (
@@ -92,7 +103,7 @@ export function Sidebar({
       </div>
 
       <div style={{ flex: 1, overflowY: "auto", padding: "4px 12px 12px" }}>
-        {NAV.map((item) => {
+        {NAV.filter((item) => !hidden.includes(item.id)).map((item) => {
           const showGroup = item.group !== lastGroup;
           lastGroup = item.group;
           const on = screen === item.id;
@@ -142,13 +153,18 @@ export function Sidebar({
             fontWeight: 700,
           }}
         >
-          MC
+          {initials(userName)}
         </div>
         <div>
-          <div style={{ fontSize: 13, fontWeight: 700 }}>Maya Chen</div>
-          <div style={{ fontSize: 11, color: theme.textFaint }}>Owner</div>
+          <div style={{ fontSize: 13, fontWeight: 700 }}>{userName}</div>
+          <div style={{ fontSize: 11, color: theme.textFaint, textTransform: "capitalize" }}>{role}</div>
         </div>
       </div>
     </aside>
   );
+}
+
+function initials(name: string): string {
+  const parts = name.trim().split(/\s+/).slice(0, 2);
+  return parts.map((part) => part[0]?.toUpperCase() ?? "").join("") || "C";
 }
