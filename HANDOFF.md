@@ -98,8 +98,8 @@ CLOCKINATOR-main/
 | Time Tracker composer + live bar | Yes — tags, tasks, manual add, 14-day history, row edit, breaks |
 | Projects list / favorite / create | Yes — form (client, color, rate, estimate, access, tasks) + filters + CSV |
 | Clients / Tags | Yes — list + create |
-| Reports range + group-by | Yes — Summary + Detailed, labor/profit, project/description grouping, bars + donut |
-| CSV / PDF export | Yes — shared multi-page summary PDF (Reports + Invoices) |
+| Reports range + group-by | Yes — Summary + Detailed, labor/profit, project/description grouping, bars + donut, per-entry rounding |
+| CSV / PDF export | Yes — shared multi-page summary PDF (Reports + Invoices); report CSV preserves raw + rounded duration |
 | Timesheet week grid | Yes — click empty cell to add; submit week; lock/unlock week |
 | Calendar week grid | Yes — positioned blocks 07:00–20:00, add/edit |
 | Approvals | Yes — submit / approve / reject on `approval_status` |
@@ -111,7 +111,7 @@ CLOCKINATOR-main/
 
 ### Python domain — still tested, not wired to the UI
 
-`TimeOpsService`: start/stop (no pause/split/break), manual entries, weekly summary, monthly income, CSV, project summaries, audit for timer + project status. **10 tests passing.** In-memory only.
+`TimeOpsService`: start/stop (no pause/split/break), manual entries, weekly summary, monthly income, CSV, project summaries, audit for timer + project status. **16 tests passing.** In-memory only.
 
 ### Clockify screen reference → Clockinator
 
@@ -122,7 +122,7 @@ CLOCKINATOR-main/
 | Pause / split / breaks | Wired; completed breaks listed on tracker | — |
 | Projects table + filters | Live form + task rates + filter bar + export | Member access rules |
 | Clients / Tags | Live list + create | Archive / merge |
-| Reports summary | Totals + labor/profit + From/To range + decimal toggle + charts + Detailed | Rounding |
+| Reports summary | Totals + labor/profit + From/To range + decimal toggle + charts + Detailed + per-entry rounding | — |
 | Timesheet week grid | Live + submit week + lock/unlock week | — |
 | Approvals queue | Live | Comments |
 | Calendar | Week grid + jump-to-date + month/week nav + today highlight | Day view, drag/drop |
@@ -253,7 +253,7 @@ Python **3.12+**. Web: React 18, Vite 5, TypeScript, sql.js, **no router, no UI 
 - `useTimer` + Time Tracker start/pause/resume/stop/split/break
 - Dense demo history + rolling 14-day tracker list, tag picker, manual add, row edit
 - Break rows on Time Tracker (work totals exclude breaks)
-- Reports Summary + Detailed + group-by + stacked day chart + donut + CSV/PDF + labor/profit
+- Reports Summary + Detailed + group-by + stacked day chart + donut + CSV/PDF + labor/profit + per-entry rounding
 - Decimal duration toggle (`h:mm:ss` / `0.00h`) on Tracker / Timesheet / Reports
 - Projects form (client/color/rate/estimate/access) + **task rate editor** + filters + CSV
 - Clients + Tags screens
@@ -316,6 +316,7 @@ Elapsed work = sum of completed work durations + live work period. Break clock i
 - **sql.js browser ESM has no default export.** Load `sql.js/dist/sql-asm.js` after React paints (`src/db/client.ts` + dynamic import in `useClockinator.tsx`). Do not `import initSqlJs from "sql.js"` in the renderer — that whitescreens `#root`.
 - `sql.js` WASM is ~650KB. Keep it the only native-ish dep until a desktop adapter exists.
 - PDF exports use a multi-page Helvetica summary layout (`domain/pdf.ts`) with accent bar, Overview donut + daily stacked bars, bold headings, column headers, zebra rows, and right-aligned Duration/Share/Amount — Clockify-shaped, Clockinator-branded.
+- Report rounding is presentation/export-only and runs per completed entry in `ClockinatorStore.report`; never write rounded values back to `time_entries`.
 - Python domain has **no** pause/split/break. TS is ahead. Do not “fix” the UI by calling Python.
 - `RunningBar` demo (`useState(2537)`) was removed; do not bring it back.
 - Project tracked hours are **real sums**, not the old mockup’s 68.2h fixtures.
@@ -335,7 +336,7 @@ Elapsed work = sum of completed work durations + live work period. Break clock i
 | Timer rules | `apps/web/src/domain/timer.ts` |
 | Rate hierarchy | `apps/web/src/domain/rates.ts` |
 | CSV/PDF | `apps/web/src/domain/reports.ts`, `domain/pdf.ts` |
-| Duration display prefs | `apps/web/src/domain/preferences.ts`, `hooks/useDurationFormat.ts` |
+| Duration display + rounding prefs | `apps/web/src/domain/preferences.ts`, `domain/rounding.ts`, `hooks/useDurationFormat.ts`, `hooks/useReportRounding.ts` |
 | Hook | `apps/web/src/hooks/useTimer.ts` |
 | Time Tracker | `apps/web/src/screens/TimeTracker.tsx` |
 | Timesheet | `apps/web/src/screens/Timesheet.tsx` |

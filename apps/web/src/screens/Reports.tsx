@@ -2,7 +2,9 @@ import { useMemo, useState } from "react";
 import { theme } from "../theme";
 import { useStore, useStoreRevision } from "../hooks/useClockinator";
 import { useDurationFormat } from "../hooks/useDurationFormat";
+import { useReportRounding } from "../hooks/useReportRounding";
 import { formatDisplayDuration } from "../domain/preferences";
+import { roundingLabel, type RoundingIncrement, type RoundingMode } from "../domain/rounding";
 import { addDays, startOfLocalDay, startOfLocalWeek, toDateInput } from "../domain/duration";
 import { downloadBlob, downloadTextFile, buildTimeSummaryPdf, toCsv } from "../domain/reports";
 import { btn, card, fieldStyle, pagePad } from "../components/ui";
@@ -40,6 +42,7 @@ export function Reports() {
   const store = useStore();
   useStoreRevision();
   const [durationFormat, setDurationFormat] = useDurationFormat();
+  const [rounding, setRounding] = useReportRounding();
   const initial = presetBounds("last30");
   const [preset, setPreset] = useState<RangePreset>("last30");
   const [fromInput, setFromInput] = useState(() => toDateInput(initial.from));
@@ -86,7 +89,7 @@ export function Reports() {
     if (from && to && to.getTime() < from.getTime()) setFromInput(value);
   };
 
-  const report = store.report(range.from.toISOString(), range.to.toISOString());
+  const report = store.report(range.from.toISOString(), range.to.toISOString(), rounding);
   const clients = store.listClients();
   const projects = store.listActiveProjects();
   const fmt = (seconds: number) => formatDisplayDuration(seconds, durationFormat);
@@ -201,7 +204,7 @@ export function Reports() {
       from: range.from,
       toExclusive: range.to,
       totalSeconds,
-      subtitle: `Billable amount: $${formatAmount(totalAmount)} · Labor: $${formatAmount(report.laborCost)} · Profit: $${formatAmount(report.profit)}`,
+      subtitle: `Billable amount: $${formatAmount(totalAmount)} · Labor: $${formatAmount(report.laborCost)} · Profit: $${formatAmount(report.profit)}${rounding.mode === "none" ? "" : ` · ${roundingLabel(rounding)}`}`,
       byProject: [...byProject.entries()]
         .map(([title, v]) => ({
           title,
@@ -371,6 +374,33 @@ export function Reports() {
             <option value="description">Group by description</option>
           </select>
         )}
+        <span style={{ width: 1, height: 22, background: theme.border }} />
+        <span style={{ fontSize: 11, fontWeight: 700, color: theme.textFaint, letterSpacing: ".08em" }}>ROUND</span>
+        <select
+          aria-label="Report rounding mode"
+          value={rounding.mode}
+          onChange={(e) => setRounding({ ...rounding, mode: e.target.value as RoundingMode })}
+          style={fieldStyle}
+          title="Applied per entry in reports, CSV, and PDF. Stored time is unchanged."
+        >
+          <option value="none">No rounding</option>
+          <option value="nearest">Nearest</option>
+          <option value="up">Round up</option>
+          <option value="down">Round down</option>
+        </select>
+        {rounding.mode !== "none" && (
+          <select
+            aria-label="Report rounding increment"
+            value={rounding.incrementMinutes}
+            onChange={(e) => setRounding({ ...rounding, incrementMinutes: Number(e.target.value) as RoundingIncrement })}
+            style={fieldStyle}
+            title="Applied to each completed entry before totals are calculated."
+          >
+            {[5, 6, 10, 15, 30, 60].map((minutes) => (
+              <option key={minutes} value={minutes}>{minutes} min</option>
+            ))}
+          </select>
+        )}
         {(client || project) && (
           <button
             onClick={() => {
@@ -392,6 +422,7 @@ export function Reports() {
           : ""}
         {report.roundingMinutes ? ` · Rounded ${report.roundingMinutes}m ${report.roundingMode}` : ""}
         {filteredSeconds !== report.totalSeconds ? ` · Filtered ${fmt(filteredSeconds)}` : ""}
+        {rounding.mode !== "none" ? ` · ${roundingLabel(rounding)}` : ""}
       </div>
 
       {tab === "summary" ? (
