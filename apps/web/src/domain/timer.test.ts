@@ -14,6 +14,7 @@ async function makeStore(): Promise<ClockinatorStore> {
   raw.run("PRAGMA foreign_keys = ON;");
   const db = wrapSqlJs(raw);
   db.exec(readFileSync(join(process.cwd(), "../../db/migrations/001_init.sql"), "utf8"));
+  db.exec(readFileSync(join(process.cwd(), "../../db/migrations/002_offline_features.sql"), "utf8"));
   seedIfEmpty(db, new Date("2026-08-16T12:00:00"));
   const store = new ClockinatorStore(db);
   store.workspaceId = IDS.workspace;
@@ -189,5 +190,42 @@ describe("timer engine", () => {
     expect(inv?.amount).toBeGreaterThan(0);
     expect(store.countInvoiceableEntries(IDS.clients.lumen, from, to)).toBe(0);
     expect(() => store.createInvoiceFromRange({ clientId: IDS.clients.lumen, from, toExclusive: to })).toThrow(/already invoiced|No billable/);
+  });
+
+  it("imports a timesheet, saves a favorite, and schedules capacity", async () => {
+    const store = await makeStore();
+    const result = store.importTimesheetCsv(
+      "date,start,end,description,project,billable\n2026-08-18,09:00,10:00,Imported,Mobile App v2,yes\n",
+    );
+    expect(result.created).toBe(1);
+    expect(result.errors).toEqual([]);
+    store.saveFavorite({ description: "Imported", projectId: IDS.projects.mobile, taskId: null, isBillable: true, tagIds: [] });
+    expect(store.listFavorites()[0]?.description).toBe("Imported");
+    store.setScheduleBlock({ userId: IDS.user, projectId: IDS.projects.mobile, day: "2026-08-17", hours: "6", note: "" });
+    const forecast = store.forecastWeek(new Date("2026-08-17T12:00:00"));
+    expect(forecast.find((row) => row.userId === IDS.user)?.scheduled).toBe(6);
+    store.saveWorkspacePolicy({
+      roundingMinutes: 15,
+      roundingMode: "up",
+      requireDescription: true,
+      requireProject: true,
+      requireTask: false,
+      requireTag: false,
+      weeklyTargetHours: 40,
+      forceTimer: false,
+      hideMemberPages: [],
+      hideOthersTime: true,
+      hideRates: false,
+    });
+    expect(() =>
+      store.createManualEntry({
+        description: "",
+        projectId: null,
+        tagIds: [],
+        isBillable: false,
+        start: new Date("2026-08-18T09:00:00"),
+        end: new Date("2026-08-18T10:00:00"),
+      }),
+    ).toThrow(/Description is required/);
   });
 });

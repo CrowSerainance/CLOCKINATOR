@@ -3,7 +3,7 @@ import { theme } from "../theme";
 import { useStore, useStoreRevision } from "../hooks/useClockinator";
 import { useDurationFormat } from "../hooks/useDurationFormat";
 import { formatDisplayDuration } from "../domain/preferences";
-import { addDays, startOfLocalWeek } from "../domain/duration";
+import { addDays, startOfLocalWeek, toDateInput } from "../domain/duration";
 import { btn, card, pagePad } from "../components/ui";
 import { Modal } from "../components/Modal";
 import { EntryEditor } from "../components/EntryEditor";
@@ -17,6 +17,12 @@ export function Timesheet() {
   const weekStart = addDays(startOfLocalWeek(new Date()), offset * 7);
   const grid = store.timesheetWeek(weekStart);
   const lock = store.weekLockState(weekStart);
+  const managing = store.canManage();
+  const weekEndKey = toDateInput(addDays(weekStart, 6));
+  const weekStartKey = toDateInput(weekStart);
+  const away = store.listTimeOff().filter(
+    (row) => row.status !== "rejected" && row.endDate >= weekStartKey && row.startDate <= weekEndKey && (managing || row.userId === store.userId),
+  );
   const COLS = `minmax(180px,1.4fr) repeat(7, 1fr) 90px`;
   const fmt = (seconds: number) => formatDisplayDuration(seconds, durationFormat);
 
@@ -56,7 +62,7 @@ export function Timesheet() {
         >
           Submit week
         </button>
-        {lock.unlocked > 0 && (
+        {managing && lock.unlocked > 0 && (
           <button
             onClick={() => {
               const n = store.lockWeek(weekStart);
@@ -67,7 +73,7 @@ export function Timesheet() {
             Lock week
           </button>
         )}
-        {lock.locked > 0 && (
+        {managing && lock.locked > 0 && (
           <button
             onClick={() => {
               const n = store.unlockWeek(weekStart);
@@ -79,6 +85,11 @@ export function Timesheet() {
           </button>
         )}
       </div>
+      {away.length > 0 && (
+        <div style={{ fontSize: 13, color: theme.textMuted, marginBottom: 12 }}>
+          Time off: {away.map((row) => `${row.user} ${row.policy} ${row.startDate}–${row.endDate}`).join(" · ")}
+        </div>
+      )}
 
       <div style={card}>
         <div

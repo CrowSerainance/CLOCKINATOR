@@ -1,7 +1,7 @@
-import { useState, type CSSProperties } from "react";
+import { useEffect, useState, type CSSProperties } from "react";
 import { theme } from "../theme";
 import { useTimer } from "../hooks/useTimer";
-import { useStore } from "../hooks/useClockinator";
+import { useStore, useStoreRevision } from "../hooks/useClockinator";
 import { useDurationFormat } from "../hooks/useDurationFormat";
 import { formatDisplayDuration } from "../domain/preferences";
 import { btn, fieldStyle } from "../components/ui";
@@ -11,10 +11,20 @@ import type { TagOption, TimeEntry } from "../types";
 
 export function TimeTracker() {
   const timer = useTimer();
+  const store = useStore();
+  useStoreRevision();
   const [durationFormat, setDurationFormat] = useDurationFormat();
   const [query, setQuery] = useState("");
   const [editing, setEditing] = useState<TimeEntry | null>(null);
   const [adding, setAdding] = useState(false);
+  const [selected, setSelected] = useState<string[]>([]);
+  const [importing, setImporting] = useState(false);
+  const [csv, setCsv] = useState("date,start,end,description,project,task,tags,billable\n");
+  const [importNote, setImportNote] = useState("");
+  const [bulkProject, setBulkProject] = useState("");
+  const [bulkTag, setBulkTag] = useState("");
+  const favorites = store.listFavorites();
+  const [preset, setPreset] = useState<(typeof favorites)[number] | null>(null);
   const q = query.trim().toLowerCase();
   const groups = q
     ? timer.groups
@@ -33,7 +43,31 @@ export function TimeTracker() {
 
   return (
     <div style={{ padding: "18px 28px 32px", overflowY: "auto", flex: 1 }}>
-      {timer.isIdle ? <Composer timer={timer} /> : <SessionBar timer={timer} />}
+      {favorites.length > 0 && (
+        <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 10 }}>
+          {favorites.map((favorite) => (
+            <button
+              key={favorite.id}
+              onClick={() => setPreset(favorite)}
+              style={btn(theme.surfaceAlt, theme.text, { fontSize: 12 })}
+              title="Use this favorite"
+            >
+              ★ {favorite.description}
+              <span
+                onClick={(e) => {
+                  e.stopPropagation();
+                  store.deleteFavorite(favorite.id);
+                }}
+                style={{ marginLeft: 6, color: theme.textFaint }}
+              >
+                ×
+              </span>
+            </button>
+          ))}
+        </div>
+      )}
+
+      {timer.isIdle ? <Composer timer={timer} preset={preset} /> : <SessionBar timer={timer} />}
 
       <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 12 }}>
         <div style={{ fontSize: 15, fontWeight: 700 }}>This week</div>
@@ -60,7 +94,46 @@ export function TimeTracker() {
         <button onClick={() => setAdding(true)} style={btn(theme.surfaceAlt, theme.text)}>
           + Add time
         </button>
+        <button onClick={() => setImporting(true)} style={btn(theme.surfaceAlt, theme.text)}>
+          Import
+        </button>
       </div>
+
+      {selected.length > 0 && (
+        <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 12, flexWrap: "wrap" }}>
+          <span style={{ fontSize: 12, color: theme.textMuted }}>{selected.length} selected</span>
+          <select value={bulkProject} onChange={(e) => setBulkProject(e.target.value)} style={fieldStyle}>
+            <option value="">Project…</option>
+            {store.listActiveProjects().map((project) => (
+              <option key={project.id} value={project.id}>{project.name}</option>
+            ))}
+          </select>
+          <select value={bulkTag} onChange={(e) => setBulkTag(e.target.value)} style={fieldStyle}>
+            <option value="">Add tag…</option>
+            {store.listTags().map((tag) => (
+              <option key={tag.id} value={tag.id}>{tag.name}</option>
+            ))}
+          </select>
+          <button
+            onClick={() => {
+              store.bulkUpdateEntries(selected, {
+                ...(bulkProject ? { projectId: bulkProject } : {}),
+                ...(bulkTag ? { addTagId: bulkTag } : {}),
+              });
+              setSelected([]);
+            }}
+            style={btn(theme.accent, theme.accentInk)}
+          >
+            Apply
+          </button>
+          <button onClick={() => { store.bulkUpdateEntries(selected, { isBillable: true }); setSelected([]); }} style={btn(theme.surfaceAlt, theme.text)}>
+            Billable
+          </button>
+          <button onClick={() => { store.bulkUpdateEntries(selected, { isBillable: false }); setSelected([]); }} style={btn(theme.surfaceAlt, theme.text)}>
+            Non-billable
+          </button>
+        </div>
+      )}
 
       {groups.length === 0 && (
         <div style={{ color: theme.textMuted, fontSize: 14, padding: "20px 4px" }}>
@@ -111,6 +184,21 @@ export function TimeTracker() {
                   if (entry.id) timer.restartFrom(entry.id);
                 }}
                 onEdit={() => setEditing(entry)}
+                selected={Boolean(entry.id && selected.includes(entry.id))}
+                onToggle={() => {
+                  if (!entry.id) return;
+                  setSelected((current) => (current.includes(entry.id!) ? current.filter((id) => id !== entry.id) : [...current, entry.id!]));
+                }}
+                onFavorite={() => {
+                  if (!entry.id || entry.kind === "break") return;
+                  store.saveFavorite({
+                    description: entry.desc,
+                    projectId: entry.projectId ?? null,
+                    taskId: entry.taskId ?? null,
+                    isBillable: entry.billable,
+                    tagIds: entry.tagIds ?? [],
+                  });
+                }}
               />
             ))}
           </div>
@@ -127,11 +215,32 @@ export function TimeTracker() {
           />
         </Modal>
       )}
+      {importing && (
+        <Modal title="Import timesheet" onClose={() => setImporting(false)}>
+          <div style={{ fontSize: 12, color: theme.textMuted, marginBottom: 8 }}>
+            Columns: date, start, end, description, project, task, tags, billable. Tags use | between names.
+          </div>
+          <textarea value={csv} onChange={(e) => setCsv(e.target.value)} rows={8} style={{ ...fieldStyle, width: "100%", fontFamily: "inherit" }} />
+          {importNote && <div style={{ fontSize: 12, color: theme.textMuted, marginTop: 8 }}>{importNote}</div>}
+          <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 12 }}>
+            <button onClick={() => setImporting(false)} style={btn(theme.surfaceAlt, theme.text)}>Close</button>
+            <button
+              onClick={() => {
+                const result = store.importTimesheetCsv(csv);
+                setImportNote(`Imported ${result.created}. ${result.errors.slice(0, 3).join(" ")}`);
+              }}
+              style={btn(theme.accent, theme.accentInk)}
+            >
+              Import
+            </button>
+          </div>
+        </Modal>
+      )}
     </div>
   );
 }
 
-function Composer({ timer }: { timer: ReturnType<typeof useTimer> }) {
+function Composer({ timer, preset }: { timer: ReturnType<typeof useTimer>; preset: { description: string; projectId: string | null; taskId: string | null; isBillable: boolean; tagIds: string[] } | null }) {
   const [description, setDescription] = useState("");
   const [projectId, setProjectId] = useState("");
   const [billable, setBillable] = useState(true);
@@ -140,23 +249,43 @@ function Composer({ timer }: { timer: ReturnType<typeof useTimer> }) {
   const [startTime, setStartTime] = useState("09:00");
   const [endTime, setEndTime] = useState("10:00");
   const [error, setError] = useState("");
+  const [forUserId, setForUserId] = useState("");
+  const [custom, setCustom] = useState<Record<string, string>>({});
 
   const store = useStore();
+  const managing = store.canManage();
+  const forceTimer = store.workspacePolicy().forceTimer && !managing;
+  const users = store.listUsers();
+  const customFields = store.listFieldDefs("time_entry");
+  useEffect(() => {
+    if (!preset) return;
+    setDescription(preset.description);
+    setProjectId(preset.projectId ?? "");
+    setTaskId(preset.taskId ?? "");
+    setBillable(preset.isBillable);
+    setTagIds(preset.tagIds);
+  }, [preset]);
   const tasks = projectId ? store.listTasks(projectId) : [];
   const [taskId, setTaskId] = useState("");
   const selected = timer.projects.find((p) => p.id === projectId);
 
   const start = () => {
+    try {
+      setError("");
     timer.start({
       description: description.trim() || "No description",
       projectId: projectId || null,
       taskId: taskId || null,
       isBillable: selected ? selected.isBillable && billable : billable,
       tagIds,
+      customFields: customFields.map((field) => ({ fieldId: field.id, value: custom[field.id] ?? "" })),
     });
     setDescription("");
     setTagIds([]);
     setTaskId("");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    }
   };
 
   const addManual = () => {
@@ -176,6 +305,8 @@ function Composer({ timer }: { timer: ReturnType<typeof useTimer> }) {
         isBillable: selected ? selected.isBillable && billable : billable,
         start: startAt,
         end: endAt,
+        forUserId: forUserId || null,
+        customFields: customFields.map((field) => ({ fieldId: field.id, value: custom[field.id] ?? "" })),
       });
       setDescription("");
       setTagIds([]);
@@ -279,8 +410,29 @@ function Composer({ timer }: { timer: ReturnType<typeof useTimer> }) {
             </button>
           </>
         )}
-        <ModeToggle mode={mode} onChange={setMode} />
+        {!forceTimer && <ModeToggle mode={mode} onChange={setMode} />}
       </div>
+      {(managing || customFields.length > 0) && (
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 8 }}>
+          {managing && (
+            <select value={forUserId} onChange={(e) => setForUserId(e.target.value)} style={fieldStyle}>
+              <option value="">Add for myself</option>
+              {users.filter((user) => user.id !== store.userId).map((user) => (
+                <option key={user.id} value={user.id}>Add for {user.name}</option>
+              ))}
+            </select>
+          )}
+          {customFields.map((field) => (
+            <input
+              key={field.id}
+              value={custom[field.id] ?? ""}
+              onChange={(e) => setCustom({ ...custom, [field.id]: e.target.value })}
+              placeholder={field.required ? `${field.name} *` : field.name}
+              style={fieldStyle}
+            />
+          ))}
+        </div>
+      )}
       {error && <div style={{ color: theme.danger, fontSize: 12, marginTop: 8 }}>{error}</div>}
     </div>
   );
@@ -455,12 +607,18 @@ function EntryRow({
   canRestart,
   onRestart,
   onEdit,
+  onToggle,
+  onFavorite,
+  selected,
   durationFormat,
 }: {
   entry: TimeEntry;
   canRestart: boolean;
   onRestart: () => void;
   onEdit: () => void;
+  onToggle: () => void;
+  onFavorite: () => void;
+  selected: boolean;
   durationFormat: "clock" | "decimal";
 }) {
   const isBreak = entry.kind === "break";
@@ -471,7 +629,7 @@ function EntryRow({
       title={isBreak ? "Edit break" : "Edit entry"}
       style={{
         display: "grid",
-        gridTemplateColumns: "minmax(160px,1.6fr) minmax(160px,1.3fr) minmax(90px,0.8fr) 22px 110px 72px 36px",
+        gridTemplateColumns: "22px minmax(160px,1.6fr) minmax(160px,1.3fr) minmax(90px,0.8fr) 22px 110px 72px 28px 36px",
         alignItems: "center",
         gap: 10,
         padding: "9px 16px",
@@ -481,6 +639,12 @@ function EntryRow({
         background: isBreak ? "rgba(224,133,133,0.06)" : undefined,
       }}
     >
+      <input
+        type="checkbox"
+        checked={selected}
+        onClick={(e) => e.stopPropagation()}
+        onChange={onToggle}
+      />
       <div style={{ fontSize: 13, fontWeight: 600, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", color: isBreak ? theme.textMuted : theme.text }}>
         {isBreak ? "Break" : entry.desc}
       </div>
@@ -527,6 +691,16 @@ function EntryRow({
       <span className="mono" style={{ fontSize: 13, fontWeight: 600, textAlign: "right" }}>
         {formatDisplayDuration(entry.durationSeconds ?? 0, durationFormat)}
       </span>
+      <button
+        onClick={(e) => {
+          e.stopPropagation();
+          onFavorite();
+        }}
+        title="Save as favorite entry"
+        style={{ background: "none", border: "none", cursor: "pointer", color: theme.textFaint, fontSize: 13 }}
+      >
+        ★
+      </button>
       <button
         onClick={(e) => {
           e.stopPropagation();

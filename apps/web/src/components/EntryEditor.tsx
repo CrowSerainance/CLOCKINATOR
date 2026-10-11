@@ -28,6 +28,9 @@ export function EntryEditor({
   const [startTime, setStartTime] = useState(toTimeInput(start));
   const [endTime, setEndTime] = useState(toTimeInput(end));
   const [error, setError] = useState("");
+  const [forUserId, setForUserId] = useState("");
+  const fields = store.fieldValues(entry?.id ?? "", "time_entry");
+  const [custom, setCustom] = useState<Record<string, string>>(() => Object.fromEntries(fields.map((field) => [field.fieldId, field.value])));
 
   const projects = store.listActiveProjects();
   const tasks = store.listTasks(projectId || null);
@@ -44,9 +47,10 @@ export function EntryEditor({
         isBillable: billable,
         start: fromDateAndTime(date, startTime),
         end: fromDateAndTime(date, endTime),
+        customFields: Object.entries(custom).map(([fieldId, value]) => ({ fieldId, value })),
       };
       if (entry?.id) store.updateEntry({ id: entry.id, ...payload });
-      else store.createManualEntry(payload);
+      else store.createManualEntry({ ...payload, forUserId: forUserId || null });
       onClose();
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
@@ -130,6 +134,27 @@ export function EntryEditor({
         <input type="checkbox" checked={billable} onChange={(e) => setBillable(e.target.checked)} />
         Billable
       </label>
+      {!entry?.id && store.canManage() && (
+        <label>
+          <span style={labelStyle}>ADD FOR</span>
+          <select value={forUserId} onChange={(e) => setForUserId(e.target.value)} style={{ ...fieldStyle, width: "100%" }}>
+            <option value="">Myself</option>
+            {store.listUsers().filter((user) => user.id !== store.userId).map((user) => (
+              <option key={user.id} value={user.id}>{user.name}</option>
+            ))}
+          </select>
+        </label>
+      )}
+      {fields.map((field) => (
+        <label key={field.fieldId}>
+          <span style={labelStyle}>{field.name}{field.required ? " *" : ""}</span>
+          <input
+            value={custom[field.fieldId] ?? ""}
+            onChange={(e) => setCustom({ ...custom, [field.fieldId]: e.target.value })}
+            style={{ ...fieldStyle, width: "100%" }}
+          />
+        </label>
+      ))}
       {error && <div style={{ color: theme.danger, fontSize: 12 }}>{error}</div>}
       <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", marginTop: 4 }}>
         {entry?.id && (

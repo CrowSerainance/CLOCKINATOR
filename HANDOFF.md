@@ -4,7 +4,7 @@ Read this before changing anything. Short rules live in [`AGENTS.md`](./AGENTS.m
 
 **Workspace:** `C:\Clockify`  
 **Git repo:** `C:\Clockify\CLOCKINATOR-main` (branch `main`)  
-**Updated:** 22 Sep 2026 — Report rounding is live and persisted locally: none / nearest / up / down at 5, 6, 10, 15, 30, or 60 minute increments. It is applied per completed entry consistently across report totals, charts, billing/labor math, Detailed view, CSV, and PDF; stored time is unchanged. Also repaired the Python service constructor so an explicit shared store is retained (and removed merge-duplicate setup that replaced the manager role). Remaining Stream J: custom fields, CSV import, favorite entries, bulk edit.
+**Updated:** 10 Oct 2026 — Offline plan-grid features that can run without cloud, mail, or kiosk hardware: required/custom fields, CSV import, rounding, favorite entries, bulk edit, add-time-for-others, hide time/pages, project templates, historic-rate editor, time off, expenses, targets, manager roles, recurring invoices, attendance, schedule + forecast, budgets, multiple currencies, in-app alerts, richer audit. Still skipped: kiosk, QR/photo kiosk, GPS, QuickBooks, scheduled email, data regions, SSO/SCIM/subdomain/control accounts, activity monitoring, cake.com bundle.
 
 This is a **Clockify-inspired self-hosted / local-first time-ops product**, not a Clockify clone. Do not copy vendor UI, chrome, copy, or implementation. Match *capabilities* using Clockinator’s own design.
 
@@ -133,67 +133,66 @@ CLOCKINATOR-main/
 
 Legend: **Done** = usable in UI · **Engine** = rules/snapshots work, thin or no admin UI · **Schema** = tables/columns exist, no UI/enforcement · **Partial** = some UI but not the Clockify-shaped feature · **No** = absent · **Skip** = cloud/hardware/enterprise — not a local-first goal
 
-Rough count excluding Skip: ~13 Done, ~10 Engine/Schema/Partial, ~7 No. Skip ~19.
+Rough count excluding Skip: offline rows are Done in the web UI. Skip stays the cloud/hardware set (kiosk, QR/photo kiosk, GPS, screenshots, QuickBooks, emailed schedules, data regions, SSO, SCIM, subdomain, control accounts, activity monitoring).
 
 #### FREE (17)
 
 | Feature | Status | Notes |
 |---|---|---|
-| Add time for others | Schema | `created_by_user_id`, `source='manager_manual'`; single seeded user; no UI |
-| Hide time and pages | No | |
-| Required fields | Schema | `custom_field_definitions.required`; no composer enforcement |
-| Bulk edit | No | Per-row `EntryEditor` only |
-| Kiosk | Skip | Explicit non-goal |
-| Decimal format | Done | Toggle `h:mm:ss` / `0.00h` on Tracker, Timesheet, Reports (`preferences.ts` + localStorage) |
-| Time audit | Partial | `AuditLog.tsx` lists `audit_logs`. Not Clockify discrepancy/override report; no IP/UA |
-| Customize exports | Partial | Shared summary PDF layout for Reports + Invoices; CSV still fixed columns; no XLSX / share links |
-| Export & share data | Partial | Local CSV + summary PDF; no share/print/XLSX |
-| Project templates | No | Python `template_name` only; no SQLite column |
-| Historic rates | Engine | `rate_history` + `historicRateAt` on write; no history admin UI |
-| Import timesheets | Schema | `source='import'` allowed; no importer |
-| Break | Done | Timer bar + completed break rows on Time Tracker (excluded from work totals) |
-| Favorite entries | No | Favorite **projects** yes (`is_favorite`) — different feature |
+| Add time for others | Done | Manager/owner “Add for” on manual entry; `source='manager_manual'`. Header **Acting as** switches the local user |
+| Hide time and pages | Done | Workspace: hide teammates’ time, hide rates, hide sidebar pages from members |
+| Required fields | Done | Workspace toggles + required custom fields enforced on start/save |
+| Bulk edit | Done | Tracker multi-select: project, tag, billable |
+| Kiosk | Skip | Shared hardware terminal |
+| Decimal format | Done | Toggle `h:mm:ss` / `0.00h` |
+| Time audit | Done | Audit log search, “Time changes” filter, CSV export, edit metadata. No IP/user-agent (no accounts) |
+| Customize exports | Done | Report column picker for CSV. No XLSX |
+| Export & share data | Partial | Local CSV + summary PDF. Share links need a server |
+| Project templates | Done | Save a project as a template; create from template |
+| Historic rates | Done | Project form lists `rate_history` and sets a rate from a date |
+| Import timesheets | Done | Tracker **Import** CSV (`date,start,end,description,project,task,tags,billable`) |
+| Break | Done | Timer bar; breaks excluded from work totals |
+| Favorite entries | Done | Star an entry; chips above the tracker fill the composer |
 | Split time | Done | Running session Split |
 | Billability & billable rates | Done | `$` toggle; task → project → workspace |
-| Export & share data | Partial | Local CSV + summary PDF; no share/print/XLSX |
-| Time estimates | Partial | `projects.estimated_hours` + progress bar; no report overlay |
+| Time estimates | Done | Project hours + report “Estimates on” overlay |
 
 #### BASIC (12)
 
 | Feature | Status | Notes |
 |---|---|---|
-| Time off | Skip | Non-goal until core is solid |
-| Invoicing | Done | List + create draft from billable client range; mark sent/paid; PDF via shared summary layout |
-| Approval | Partial | Submit/approve/reject; no comments, withdrawal, manager queue polish |
-| Lock timesheet | Done | Timesheet **Lock week** / **Unlock**; `approval_status='locked'` blocks edit/delete |
-| Targets & reminders | No | |
-| Manager role | Schema | `users.role`; seed is owner only; no role UI |
-| Task rates | Done | Project form: edit/add tasks with billable rates + `rate_history` |
-| Rounding | Done | Report control supports nearest/up/down per entry at 5/6/10/15/30/60m; totals, money, charts, CSV, and PDF agree. Raw entries are not mutated. |
+| Time off | Done | Request / approve vacation, sick, personal. Shown on the timesheet week |
+| Invoicing | Done | Draft from billable time; sent/paid; PDF |
+| Approval | Done | Submit / withdraw / approve / reject plus notes. Managers approve |
+| Lock timesheet | Done | Managers lock/unlock the week |
+| Targets & reminders | Done | Weekly hour target. In-app reminder Fri–Sun when behind |
+| Manager role | Done | Team screen: owner / manager / member. Jonah (manager) and Priya (member) are seeded |
+| Task rates | Done | Project form |
+| Rounding | Done | Workspace minute grid (nearest/up/down) applied to reports and invoices |
 | QuickBooks | Skip | Cloud integration |
-| Recurring invoices | No | |
-| Attendance report | No | |
-| QR code (kiosk) | Skip | |
+| Recurring invoices | Done | Schedule weekly/monthly; **Generate due** creates the local draft |
+| Attendance report | Done | Reports → Attendance (first/last, present/off/absent) |
+| QR code (kiosk) | Skip | Kiosk hardware |
 
 #### STANDARD (15)
 
 | Feature | Status | Notes |
 |---|---|---|
-| Scheduling | Skip | Non-goal |
-| Forecasting | Skip | Non-goal |
-| Expenses | Skip | Non-goal |
-| Labor cost & profit | Done | Reports show Labor $ + Profit $ from `cost_rate_snapshot`; CSV includes `cost_rate` |
-| Budget & estimates | Partial | Hours progress, not a full budget/profit entity |
-| Custom fields | Schema | `custom_field_definitions` + `custom_field_values` |
-| User fields | Schema | Same tables; `target` includes `user` |
-| Scheduled reports | Skip | Needs scheduler/server |
-| Alerts | Skip | Same |
-| Force timer | No | |
-| GPS tracking | Skip | |
-| Screenshots | Skip | |
-| Photo capture (kiosk) | Skip | |
-| Multiple currencies | Schema | `workspaces.currency` default USD; no FX UI |
-| Data regions | Skip | Cloud |
+| Scheduling | Done | Week assignments of hours to a person and project |
+| Forecasting | Done | Scheduled hours vs weekly capacity on the Schedule screen |
+| Expenses | Done | Expenses screen; subtracted from report profit via local FX |
+| Labor cost & profit | Done | Reports labor, expenses, profit |
+| Budget & estimates | Done | Project budget amount; header alert when billed amount exceeds it |
+| Custom fields | Done | Workspace definitions; values on the time entry editor and composer |
+| User fields | Done | Same definitions with target `user`, edited on Team |
+| Scheduled reports | Skip | Email delivery needs a mail server |
+| Alerts | Done | In-app only: target, budget, approvals, time off, due invoices. No email/push |
+| Force timer | Done | Members cannot add manual time while the workspace toggle is on |
+| GPS tracking | Skip | Device location |
+| Screenshots | Skip | Desktop capture |
+| Photo capture (kiosk) | Skip | Kiosk camera |
+| Multiple currencies | Done | Client currency + workspace exchange rates. Acme is seeded as EUR at 1.08 |
+| Data regions | Skip | Cloud hosting |
 
 #### PRO (5)
 
@@ -202,8 +201,8 @@ Rough count excluding Skip: ~13 Done, ~10 Engine/Schema/Partial, ~7 No. Skip ~19
 | Single sign-on (SSO) | Skip | |
 | Custom subdomain | Skip | |
 | SCIM | Skip | |
-| Control accounts | Skip | |
-| Audit log | Partial | Thin list; no search/export/filters |
+| Control accounts | Skip | Multi-workspace cloud admin |
+| Audit log | Done | Search, time-change filter, CSV export |
 
 ---
 
@@ -263,16 +262,11 @@ Python **3.12+**. Web: React 18, Vite 5, TypeScript, sql.js, **no router, no UI 
 - Calendar week grid
 - Approvals submit/approve/reject + Audit log list
 
-### Stream J — Local grid gaps (claim one slice)
+### Stream J — Local grid gaps
 
-Shipped: break rows, lock week, task rates, decimal format, labor/profit, **invoice UI + shared PDF**, report/export rounding.
+Shipped: break rows, lock week, task rates, decimal format, labor/profit, invoice UI + shared PDF, and the rest of the offline plan grid (custom/required fields, CSV import, rounding, favorite entries, bulk edit, templates, historic rates, time off, expenses, schedule/forecast, attendance, recurring invoices, currencies, targets, manager role, hide time/pages, audit search/export).
 
-Still open:
-
-1. Custom/required fields on composer
-2. CSV timesheet import
-3. Favorite time-entry presets (not project stars)
-4. Bulk edit
+Still skipped (not offline): kiosk, QR/photo kiosk, GPS, QuickBooks, emailed scheduled reports, data regions, SSO, SCIM, custom subdomain, control accounts, activity monitoring, cake.com bundle.
 
 ### Stream I — Native desktop adapter
 

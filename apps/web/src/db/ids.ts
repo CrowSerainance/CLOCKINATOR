@@ -1,6 +1,11 @@
 export const IDS = {
   workspace: "ws_northwind",
   user: "user_maya",
+  users: {
+    maya: "user_maya",
+    jonah: "user_jonah",
+    priya: "user_priya",
+  },
   clients: {
     lumen: "client_lumen",
     acme: "client_acme",

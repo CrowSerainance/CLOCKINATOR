@@ -1,23 +1,53 @@
+import { useState } from "react";
 import { theme } from "../theme";
 import { useStore, useStoreRevision } from "../hooks/useClockinator";
-import { card, pagePad } from "../components/ui";
+import { downloadTextFile, toCsv } from "../domain/reports";
+import { btn, card, fieldStyle, pagePad } from "../components/ui";
 
 export function AuditLog() {
   const store = useStore();
   useStoreRevision();
-  const rows = store.listAudit();
+  const [query, setQuery] = useState("");
+  const [timeOnly, setTimeOnly] = useState(false);
+  const all = store.listAudit();
+  const q = query.trim().toLowerCase();
+  const rows = all.filter((row) => {
+    if (timeOnly && !row.action.startsWith("time_entry") && row.targetType !== "time_entry") return false;
+    if (!q) return true;
+    return `${row.action} ${row.actor} ${row.targetType} ${row.targetId} ${row.detail}`.toLowerCase().includes(q);
+  });
 
   return (
     <div style={pagePad}>
       <div style={{ display: "flex", alignItems: "baseline", gap: 14, marginBottom: 16 }}>
         <div style={{ fontSize: 22, fontWeight: 700 }}>Audit Log</div>
-        <div style={{ fontSize: 13, color: theme.textMuted }}>{rows.length} recent events</div>
+        <div style={{ fontSize: 13, color: theme.textMuted }}>{rows.length} events</div>
+        <div style={{ flex: 1 }} />
+        <button onClick={() => setTimeOnly((value) => !value)} style={btn(timeOnly ? theme.accent + "22" : theme.surfaceAlt, theme.text, { fontSize: 12 })}>
+          Time changes
+        </button>
+        <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search" style={fieldStyle} />
+        <button
+          onClick={() =>
+            downloadTextFile(
+              "clockinator-audit.csv",
+              toCsv(
+                ["when", "action", "actor", "target", "id", "detail"],
+                rows.map((row) => [row.createdAt, row.action, row.actor, row.targetType, row.targetId, row.detail]),
+              ),
+              "text/csv;charset=utf-8",
+            )
+          }
+          style={btn(theme.surfaceAlt, theme.text)}
+        >
+          Export
+        </button>
       </div>
       <div style={card}>
         <div
           style={{
             display: "grid",
-            gridTemplateColumns: "140px 1.2fr 0.8fr 1fr 1fr",
+            gridTemplateColumns: "140px 1.1fr 0.7fr 0.7fr 1.4fr",
             gap: 12,
             padding: "12px 18px",
             fontSize: 11,
@@ -31,14 +61,14 @@ export function AuditLog() {
           <span>ACTION</span>
           <span>ACTOR</span>
           <span>TARGET</span>
-          <span>ID</span>
+          <span>DETAIL</span>
         </div>
         {rows.map((row) => (
           <div
             key={row.id}
             style={{
               display: "grid",
-              gridTemplateColumns: "140px 1.2fr 0.8fr 1fr 1fr",
+              gridTemplateColumns: "140px 1.1fr 0.7fr 0.7fr 1.4fr",
               gap: 12,
               padding: "11px 18px",
               borderTop: `1px solid ${theme.border}`,
@@ -49,7 +79,7 @@ export function AuditLog() {
             <span style={{ fontSize: 13, fontWeight: 600 }}>{row.action}</span>
             <span style={{ fontSize: 13, color: theme.textMuted }}>{row.actor}</span>
             <span style={{ fontSize: 13, color: theme.textMuted }}>{row.targetType}</span>
-            <span className="mono" style={{ fontSize: 11, color: theme.textFaint, overflow: "hidden", textOverflow: "ellipsis" }}>{row.targetId}</span>
+            <span style={{ fontSize: 12, color: theme.textFaint, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{row.detail || row.targetId}</span>
           </div>
         ))}
         {rows.length === 0 && (

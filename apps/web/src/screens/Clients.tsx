@@ -31,7 +31,7 @@ export function Clients() {
         <div
           style={{
             display: "grid",
-            gridTemplateColumns: "2fr 1fr 1fr",
+            gridTemplateColumns: "2fr 1fr 1fr 120px",
             gap: 12,
             padding: "12px 18px",
             fontSize: 11,
@@ -44,13 +44,14 @@ export function Clients() {
           <span>NAME</span>
           <span>PROJECTS</span>
           <span>TRACKED</span>
+          <span>CURRENCY</span>
         </div>
         {rows.map((row) => (
           <div
             key={row.id}
             style={{
               display: "grid",
-              gridTemplateColumns: "2fr 1fr 1fr",
+              gridTemplateColumns: "2fr 1fr 1fr 120px",
               gap: 12,
               padding: "12px 18px",
               borderTop: `1px solid ${theme.border}`,
@@ -60,6 +61,11 @@ export function Clients() {
             <span style={{ fontSize: 14, fontWeight: 600 }}>{row.name}</span>
             <span style={{ fontSize: 13, color: theme.textMuted }}>{row.projects}</span>
             <span className="mono" style={{ fontSize: 13 }}>{row.tracked}</span>
+            <select value={row.currency} disabled={!store.canManage()} onChange={(e) => store.setClientCurrency(row.id, e.target.value)} style={fieldStyle}>
+              {[...new Set(["USD", "EUR", "GBP", row.currency])].map((code) => (
+                <option key={code} value={code}>{code}</option>
+              ))}
+            </select>
           </div>
         ))}
       </div>

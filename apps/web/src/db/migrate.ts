@@ -1,8 +1,10 @@
 import migration001 from "@schema/migrations/001_init.sql?raw";
+import migration002 from "@schema/migrations/002_offline_features.sql?raw";
 import type { SqlDatabase } from "./sql";
 
 const MIGRATIONS: Array<{ version: number; name: string; sql: string }> = [
   { version: 1, name: "001_init", sql: migration001 },
+  { version: 2, name: "002_offline_features", sql: migration002 },
 ];
 
 export function applyMigrations(db: SqlDatabase): void {
