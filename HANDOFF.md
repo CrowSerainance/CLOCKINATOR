@@ -4,7 +4,7 @@ Read this before changing anything. Short rules live in [`AGENTS.md`](./AGENTS.m
 
 **Workspace:** `C:\Clockify`  
 **Git repo:** `C:\Clockify\CLOCKINATOR-main` (branch `main`)  
-**Updated:** 10 Oct 2026 — Offline plan-grid features that can run without cloud, mail, or kiosk hardware: required/custom fields, CSV import, rounding, favorite entries, bulk edit, add-time-for-others, hide time/pages, project templates, historic-rate editor, time off, expenses, targets, manager roles, recurring invoices, attendance, schedule + forecast, budgets, multiple currencies, in-app alerts, richer audit. Still skipped: kiosk, QR/photo kiosk, GPS, QuickBooks, scheduled email, data regions, SSO/SCIM/subdomain/control accounts, activity monitoring, cake.com bundle.
+**Updated:** 11 Nov 2026 — Daily habit bar on Time Tracker: today vs a fifth of the weekly target, weekday streak, empty-day nag, one-click Continue, favorites start the timer, tab title says "No time today" until something is logged. Offline plan-grid features remain in place. Still skipped: kiosk, QR/photo kiosk, GPS, QuickBooks, scheduled email, data regions, SSO/SCIM/subdomain/control accounts, activity monitoring, cake.com bundle.
 
 This is a **Clockify-inspired self-hosted / local-first time-ops product**, not a Clockify clone. Do not copy vendor UI, chrome, copy, or implementation. Match *capabilities* using Clockinator’s own design.
 

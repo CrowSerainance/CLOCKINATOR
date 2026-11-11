@@ -48,6 +48,7 @@ import {
   entryPolicyErrors,
   isWeekendKey,
   parseTimesheetCsv,
+  weekdayStreak,
   roundSeconds,
   type RoundingMode,
 } from "../domain/policy";
@@ -2237,9 +2238,84 @@ export class ClockinatorStore implements TimerEngineDb {
     }));
   }
 
+  habitSnapshot(): {
+    todaySeconds: number;
+    dailyTargetSeconds: number;
+    streak: number;
+    missedYesterday: boolean;
+    emptyWeekdays: string[];
+    lastEntryId: string | null;
+    lastLabel: string;
+  } {
+    const now = this.now();
+    const todayKey = localDayKey(now.toISOString());
+    const yesterdayKey = localDayKey(addDays(now, -1).toISOString());
+    const from = addDays(startOfLocalDay(now), -59);
+    const rows = this.all<{ start_at: string; duration_seconds: number }>(
+      `SELECT start_at, duration_seconds FROM time_entries
+       WHERE workspace_id = ? AND user_id = ? AND deleted_at IS NULL AND kind = 'work' AND end_at IS NOT NULL
+         AND start_at >= ?`,
+      [this.workspaceId, this.userId, from.toISOString()],
+    );
+    const byDay = new Map<string, number>();
+    for (const row of rows) {
+      const key = localDayKey(row.start_at);
+      byDay.set(key, (byDay.get(key) ?? 0) + Number(row.duration_seconds));
+    }
+    const open = this.getOpenSession();
+    if (open && localDayKey(open.startedAt) === todayKey) {
+      byDay.set(todayKey, (byDay.get(todayKey) ?? 0) + this.elapsedFor(open.id, now));
+    }
+    const series: Array<{ key: string; seconds: number }> = [];
+    for (let i = 0; i < 60; i++) {
+      const key = toDateInput(addDays(startOfLocalDay(now), -i));
+      series.push({ key, seconds: byDay.get(key) ?? 0 });
+    }
+    const weekStart = startOfLocalWeek(now);
+    const emptyWeekdays: string[] = [];
+    for (let i = 0; i < 5; i++) {
+      const day = addDays(weekStart, i);
+      if (day.getTime() > startOfLocalDay(now).getTime()) break;
+      const key = toDateInput(day);
+      if ((byDay.get(key) ?? 0) === 0 && !this.coveredByTimeOff(key)) {
+        emptyWeekdays.push(day.toLocaleDateString(undefined, { weekday: "short" }));
+      }
+    }
+    const last = this.get<{ id: string; description: string; project_name: string | null }>(
+      `SELECT e.id, e.description, p.name AS project_name
+       FROM time_entries e
+       LEFT JOIN projects p ON p.id = e.project_id
+       WHERE e.workspace_id = ? AND e.user_id = ? AND e.deleted_at IS NULL AND e.kind = 'work' AND e.end_at IS NOT NULL
+       ORDER BY e.start_at DESC LIMIT 1`,
+      [this.workspaceId, this.userId],
+    );
+    const dailyTarget = this.workspacePolicy().weeklyTargetSeconds > 0
+      ? Math.round(this.workspacePolicy().weeklyTargetSeconds / 5)
+      : 0;
+    return {
+      todaySeconds: byDay.get(todayKey) ?? 0,
+      dailyTargetSeconds: dailyTarget,
+      streak: weekdayStreak(series, todayKey),
+      missedYesterday: !isWeekendKey(yesterdayKey) && (byDay.get(yesterdayKey) ?? 0) === 0 && !this.coveredByTimeOff(yesterdayKey),
+      emptyWeekdays,
+      lastEntryId: last?.id ?? null,
+      lastLabel: last ? `${last.description || "Last entry"}${last.project_name ? ` · ${last.project_name}` : ""}` : "",
+    };
+  }
+
   listAlerts(): string[] {
     const policy = this.workspacePolicy();
     const alerts: string[] = [];
+    const habit = this.habitSnapshot();
+    if (habit.dailyTargetSeconds > 0) {
+      alerts.push(`Today ${formatHours(habit.todaySeconds)}h / ${formatHours(habit.dailyTargetSeconds)}h · ${habit.streak}-day streak`);
+    }
+    if (habit.missedYesterday) alerts.push("Yesterday has no time logged");
+    if (habit.emptyWeekdays.length > 1) alerts.push(`Empty weekdays: ${habit.emptyWeekdays.join(", ")}`);
+    const hour = this.now().getHours();
+    if (habit.todaySeconds === 0 && !this.getOpenSession() && hour >= 10 && !isWeekendKey(toDateInput(this.now()))) {
+      alerts.push("Nothing logged today — start the timer");
+    }
     if (policy.weeklyTargetSeconds > 0) {
       const week = this.listWeekGroups().weekTotalSeconds;
       const tracked = formatHours(week);
@@ -2279,6 +2355,15 @@ export class ClockinatorStore implements TimerEngineDb {
       if (Number(due) > 0) alerts.push(`${due} recurring invoices are due`);
     }
     return alerts;
+  }
+
+  private coveredByTimeOff(day: string): boolean {
+    const row = this.get<{ n: number }>(
+      `SELECT COUNT(*) AS n FROM time_off
+       WHERE workspace_id = ? AND user_id = ? AND status != 'rejected' AND start_date <= ? AND end_date >= ?`,
+      [this.workspaceId, this.userId, day, day],
+    );
+    return Number(row?.n) > 0;
   }
 
   private assertEntryAllowed(input: {

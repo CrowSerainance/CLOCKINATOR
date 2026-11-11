@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Sidebar } from "./components/Sidebar";
 import { TimeTracker } from "./screens/TimeTracker";
 import { Timesheet } from "./screens/Timesheet";
@@ -18,6 +18,30 @@ import { WorkspaceSettings } from "./screens/WorkspaceSettings";
 import type { Screen } from "./types";
 import { theme } from "./theme";
 import { useStore, useStoreRevision } from "./hooks/useClockinator";
+import { formatDuration } from "./domain/duration";
+
+function useHabitTitle() {
+  const store = useStore();
+  useStoreRevision();
+  const session = store.getOpenSession();
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    if (session?.status !== "running" && session?.status !== "on_break") return;
+    const id = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(id);
+  }, [session?.id, session?.status]);
+  useEffect(() => {
+    const habit = store.habitSnapshot();
+    if (session?.status === "running" || session?.status === "on_break") {
+      const seconds = session.status === "on_break" ? store.breakElapsedFor(session.id, new Date(now)) : store.elapsedFor(session.id, new Date(now));
+      document.title = `${formatDuration(seconds)} · Clockinator`;
+    } else if (habit.todaySeconds === 0) {
+      document.title = "No time today · Clockinator";
+    } else {
+      document.title = "Clockinator";
+    }
+  }, [store, session?.id, session?.status, now]);
+}
 
 const TITLES: Record<Screen, string> = {
   tracker: "Time Tracker",
@@ -45,6 +69,7 @@ export function App() {
   const visible = hidden.includes(screen) ? "tracker" : screen;
   const alerts = store.listAlerts();
   const users = store.listUsers();
+  useHabitTitle();
 
   return (
     <div style={{ display: "flex", height: "100vh", width: "100%", overflow: "hidden" }}>
