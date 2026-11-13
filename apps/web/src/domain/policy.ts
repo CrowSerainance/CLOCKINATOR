@@ -139,6 +139,24 @@ export function isWeekendKey(day: string): boolean {
   return weekday === 0 || weekday === 6;
 }
 
+/**
+ * Consecutive weekdays with tracked time, newest first.
+ * An empty today does not break the streak; the count starts at yesterday.
+ * Weekends are skipped. The list must include every calendar day, including zeros.
+ */
+export function weekdayStreak(daysNewestFirst: Array<{ key: string; seconds: number }>, todayKey: string): number {
+  let index = 0;
+  if (daysNewestFirst[index]?.key === todayKey && daysNewestFirst[index].seconds <= 0) index += 1;
+  let streak = 0;
+  for (; index < daysNewestFirst.length; index++) {
+    const day = daysNewestFirst[index];
+    if (isWeekendKey(day.key)) continue;
+    if (day.seconds > 0) streak += 1;
+    else break;
+  }
+  return streak;
+}
+
 function splitCsvLine(line: string): string[] {
   const out: string[] = [];
   let current = "";

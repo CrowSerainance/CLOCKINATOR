@@ -24,7 +24,9 @@ export function TimeTracker() {
   const [bulkProject, setBulkProject] = useState("");
   const [bulkTag, setBulkTag] = useState("");
   const favorites = store.listFavorites();
+  const habit = store.habitSnapshot();
   const [preset, setPreset] = useState<(typeof favorites)[number] | null>(null);
+  const [startError, setStartError] = useState("");
   const q = query.trim().toLowerCase();
   const groups = q
     ? timer.groups
@@ -43,14 +45,72 @@ export function TimeTracker() {
 
   return (
     <div style={{ padding: "18px 28px 32px", overflowY: "auto", flex: 1 }}>
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: 14,
+          marginBottom: 12,
+          padding: "10px 14px",
+          background: theme.surface,
+          border: `1px solid ${habit.todaySeconds === 0 && timer.isIdle ? theme.danger : theme.border}`,
+          borderRadius: 12,
+          flexWrap: "wrap",
+        }}
+      >
+        <div style={{ minWidth: 160 }}>
+          <div style={{ fontSize: 12, color: theme.textFaint, fontWeight: 700, letterSpacing: ".06em" }}>TODAY</div>
+          <div className="mono" style={{ fontSize: 18, fontWeight: 700 }}>
+            {formatDisplayDuration(habit.todaySeconds, durationFormat)}
+            {habit.dailyTargetSeconds > 0 ? ` / ${formatDisplayDuration(habit.dailyTargetSeconds, durationFormat)}` : ""}
+          </div>
+        </div>
+        <div style={{ flex: 1, minWidth: 120 }}>
+          <div style={{ height: 6, borderRadius: 4, background: theme.surfaceAlt, overflow: "hidden" }}>
+            <div
+              style={{
+                width: `${habit.dailyTargetSeconds ? Math.min(100, (habit.todaySeconds / habit.dailyTargetSeconds) * 100) : habit.todaySeconds ? 100 : 0}%`,
+                height: "100%",
+                background: habit.todaySeconds === 0 ? theme.danger : theme.accent,
+              }}
+            />
+          </div>
+          <div style={{ fontSize: 12, color: theme.textMuted, marginTop: 6 }}>
+            {habit.streak}-day streak
+            {habit.missedYesterday ? " · yesterday is empty" : ""}
+            {habit.emptyWeekdays.length ? ` · open: ${habit.emptyWeekdays.join(", ")}` : ""}
+          </div>
+        </div>
+        {timer.isIdle && habit.lastEntryId && (
+          <button onClick={() => timer.restartFrom(habit.lastEntryId!)} style={btn(theme.accent, theme.accentInk)} title={habit.lastLabel}>
+            Continue
+          </button>
+        )}
+      </div>
+      {startError && <div style={{ color: theme.danger, fontSize: 12, marginBottom: 8 }}>{startError}</div>}
+
       {favorites.length > 0 && (
         <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 10 }}>
           {favorites.map((favorite) => (
             <button
               key={favorite.id}
-              onClick={() => setPreset(favorite)}
+              onClick={() => {
+                try {
+                  setStartError("");
+                  store.start({
+                    description: favorite.description,
+                    projectId: favorite.projectId,
+                    taskId: favorite.taskId,
+                    isBillable: favorite.isBillable,
+                    tagIds: favorite.tagIds,
+                  });
+                } catch (error) {
+                  setPreset(favorite);
+                  setStartError(error instanceof Error ? error.message : String(error));
+                }
+              }}
               style={btn(theme.surfaceAlt, theme.text, { fontSize: 12 })}
-              title="Use this favorite"
+              title="Start this favorite"
             >
               ★ {favorite.description}
               <span

@@ -7,6 +7,7 @@ import {
   isWeekendKey,
   parseTimesheetCsv,
   roundSeconds,
+  weekdayStreak,
 } from "./policy";
 
 describe("offline policy", () => {
@@ -53,6 +54,19 @@ bad,9am,10:00,Nope,Mobile,,no`);
     expect(forecastUtilization(10, 0)).toBe(0);
     expect(convertFromBase(160, 1.08)).toBeCloseTo(160 / 1.08);
     expect(convertFromBase(160, 1)).toBe(160);
+  });
+
+  it("keeps a weekday streak when today is still empty", () => {
+    const days = [
+      { key: "2026-11-11", seconds: 0 },
+      { key: "2026-11-10", seconds: 3600 },
+      { key: "2026-11-09", seconds: 1800 },
+      { key: "2026-11-08", seconds: 0 },
+      { key: "2026-11-07", seconds: 0 },
+      { key: "2026-11-06", seconds: 0 },
+    ];
+    expect(weekdayStreak(days, "2026-11-11")).toBe(2);
+    expect(weekdayStreak([{ key: "2026-11-11", seconds: 600 }, ...days.slice(1)], "2026-11-11")).toBe(3);
   });
 
   it("marks attendance and weekends", () => {
